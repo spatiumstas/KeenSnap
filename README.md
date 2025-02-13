@@ -1,3 +1,5 @@
+<img src="https://github.com/user-attachments/assets/68933827-3f62-40e0-83e9-d67360336c5c" alt="" width="700">
+
 # Установка:
 
 1. В `SSH` ввести команду
@@ -25,8 +27,8 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 3. Вставить в скрипт
 
    <img src="https://github.com/user-attachments/assets/88d6582b-1057-41f1-98ca-d5180586a787" alt="" width="700">
-   <img src="https://github.com/user-attachments/assets/68933827-3f62-40e0-83e9-d67360336c5c" alt="" width="700">
 
 # Работа сервиса
 - При срабатывании расписания запускается хук `/opt/etc/ndm/schedule.d/99-keensnap.sh`
 - Просмотр логов: `cat /opt/root/KeenSnap/log.txt`
+- Выбор для типа бэкапа состоит из: Startup-Config, Entware, Firmware, WireGuard Private-Keys
