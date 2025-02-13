@@ -70,13 +70,17 @@ send_to_telegram() {
   local escaped_caption
   escaped_caption=$(echo "$caption" | sed 's/[][*_`]/\\&/g')
 
+  local response
+  local response_body
+
   if [ -n "$file_path" ] && [ -f "$file_path" ]; then
-    local response
-    response=$(curl -s -o /dev/null -w "%{http_code}" -F "chat_id=$chat_id" \
+    response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
       -F "document=@$file_path" \
       -F "caption=$escaped_caption" \
       -F "parse_mode=Markdown" \
       https://api.telegram.org/bot$BOT_TOKEN/sendDocument)
+    response_body=$(cat /tmp/telegram_response)
+    rm -f /tmp/telegram_response
   else
     local payload
     if [ -n "$topic_id" ]; then
@@ -86,17 +90,18 @@ send_to_telegram() {
       payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' \
         "$chat_id" "$escaped_caption")
     fi
-    local response
-    response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+    response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$payload")
+    response_body=$(cat /tmp/telegram_response)
+    rm -f /tmp/telegram_response
   fi
 
   if [ "$response" -eq 200 ]; then
     success "Сообщение успешно отправлено в Telegram."
     return 0
   else
-    error "Ошибка отправки в Telegram (HTTP $response)."
+    error "Ошибка отправки в Telegram (HTTP $response). Ответ сервера: $response_body"
     return 1
   fi
 }
