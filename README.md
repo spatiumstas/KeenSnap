@@ -23,8 +23,9 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 <img src="https://github.com/user-attachments/assets/ca5c31af-b29c-4d5a-b2d9-75ff64ba2c34" alt="" width="700">
 
 3. Вставить в скрипт
-   
-   <img src="https://github.com/user-attachments/assets/8f0557ee-b8f1-4636-b8e8-0d3868b5e7a3" alt="" width="700">
+
+   <img src="https://github.com/user-attachments/assets/88d6582b-1057-41f1-98ca-d5180586a787" alt="" width="700">
+   <img src="https://github.com/user-attachments/assets/68933827-3f62-40e0-83e9-d67360336c5c" alt="" width="700">
 
 # Работа сервиса
 - При срабатывании расписания запускается хук `/opt/etc/ndm/schedule.d/99-keensnap.sh`
