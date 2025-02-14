@@ -349,10 +349,10 @@ script_update() {
   chmod +x $PATH_SNAPD
 
   if [ -f "$TMP_DIR/$SCRIPT" ]; then
-    mv "$TMP_DIR/$SCRIPT" "$OPT_DIR/$SCRIPT"
-    chmod +x $OPT_DIR/$SCRIPT
+    mv "$TMP_DIR/$SCRIPT" "$KEENSNAP_DIR/$SCRIPT"
+    chmod +x $KEENSNAP_DIR/$SCRIPT
     cd $OPT_DIR/bin
-    ln -sf $OPT_DIR/$SCRIPT $OPT_DIR/bin/$REPO
+    ln -sf $KEENSNAP_DIR/$SCRIPT $OPT_DIR/bin/$REPO
     if [ "$BRANCH" = "dev" ]; then
       print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
       sleep 1
@@ -360,7 +360,7 @@ script_update() {
       print_message "Скрипт успешно обновлён" "$GREEN"
       sleep 1
     fi
-    $OPT_DIR/$SCRIPT post_update
+    $KEENSNAP_DIR/$SCRIPT
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
   fi
