@@ -12,24 +12,25 @@ statuses=""
 
 case "$1" in
 start)
-  SCHEDULE="$2"
-  ELAPSED="$3"
-  echo "Запуск KeenSnap в фоне... (schedule: $SCHEDULE)"
-  $PATH_INITD run "$SCHEDULE" >>$LOG_FILE 2>&1 &
+  if [ -n "$2" ]; then
+    SCHEDULE="$2"
+    echo "Запуск KeenSnap в фоне... (schedule: $SCHEDULE)"
+    $PATH_INITD run "$SCHEDULE" >>$LOG_FILE 2>&1 &
+  fi
   ;;
 run)
   SCHEDULE="$2"
 
   log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" >> "$LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" >>"$LOG_FILE"
   }
 
   error() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*" >> "$LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*" >>"$LOG_FILE"
   }
 
   success() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*" >> "$LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*" >>"$LOG_FILE"
   }
 
   get_device_info() {
