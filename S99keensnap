@@ -38,11 +38,11 @@ run)
     version_output=$(ndmc -c show version 2>/dev/null)
 
     DEVICE=$(echo "$version_output" | grep "device" | awk -F": " '{print $2}')
-    FW_VERSION=$(echo "$version_output" | grep "title" | awk -F": " '{print $2}')
+    FW_VERSION=$(echo "$version_output" | grep "release" | awk -F": " '{print $2}')
     DEVICE_ID=$(echo "$version_output" | grep "hw_id" | awk -F": " '{print $2}')
-
     if [ -z "$DEVICE" ] || [ -z "$FW_VERSION" ] || [ -z "$DEVICE_ID" ]; then
-      log "Ошибка при получении информации о устройстве."
+      log "Ошибка при получении информации о устройстве - $DEVICE $FW_VERSION $DEVICE_ID"
+      send_to_telegram "Ошибка при получении информации о устройстве - $DEVICE $FW_VERSION $DEVICE_ID"
       exit 1
     fi
   }
@@ -228,10 +228,12 @@ run)
 
     local archive_path
     if [ -n "$SELECTED_DRIVE" ] && [ -d "$SELECTED_DRIVE/$date" ]; then
+      cp "$LOG_FILE" "$SELECTED_DRIVE/$date/backup_log.txt"
       archive_path="$SELECTED_DRIVE/${DEVICE_ID}_$date.tar.gz"
       tar -czf "$archive_path" -C "$SELECTED_DRIVE" "$date"
       if [ $? -ne 0 ]; then
         error "Ошибка при создании архива."
+        send_to_telegram "Ошибка при создании архива."
         return 1
       fi
       success "Архив создан"

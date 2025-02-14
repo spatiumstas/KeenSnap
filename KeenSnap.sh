@@ -29,7 +29,11 @@ print_menu() {
  |_|\_\___|\___|_| |_|____/|_| |_|\__,_| .__/
                                        |_|
 EOF
-  printf "${RED}Версия скрипта:\t${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
+  if [ ! -f $PATH_SNAPD ]; then
+    printf "${RED}Конфигурация не настроена${NC}\n\n"
+  else
+    printf "${RED}Версия скрипта: ${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
+  fi
   echo "1. Настроить конфигурацию"
   echo "2. Настроить тип бэкапа"
   echo "3. Подключить Telegram"
