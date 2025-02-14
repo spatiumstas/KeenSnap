@@ -11,8 +11,9 @@ TMP_DIR="/tmp"
 OPT_DIR="/opt"
 
 KEENSNAP_DIR="/opt/root/KeenSnap"
-SNAPD="99-keensnap.sh"
-PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
+SNAPD="S99keensnap"
+PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap-init.sh"
+PATH_SNAPD="/opt/etc/init.d/S99keensnap"
 CONFIG_FILE="/opt/root/KeenSnap/config.sh"
 CONFIG_TEMPLATE="config.template"
 SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' $PATH_SNAPD)
@@ -111,6 +112,21 @@ setup_config() {
   if [ ! -f "$PATH_SNAPD" ]; then
     curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SNAPD" --output "$PATH_SNAPD"
     chmod +x "$PATH_SNAPD"
+  fi
+
+  if [ ! -f "$PATH_SCHEDULE" ]; then
+    cat <<'EOL' >"$PATH_SCHEDULE"
+#!/bin/sh
+source /opt/root/KeenSnap/config.sh
+
+if [ "$1" = "start" ] && [ "$schedule" = "$SCHEDULE_NAME" ]; then
+  $PATH_SNAPD start "$schedule"
+else
+  exit 0
+fi
+
+EOL
+    chmod +x "$PATH_SCHEDULE"
   fi
 
   schedule_output=$(ndmc -c "show sc schedule")
