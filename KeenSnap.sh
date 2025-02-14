@@ -12,9 +12,9 @@ OPT_DIR="/opt"
 
 KEENSNAP_DIR="/opt/root/KeenSnap"
 SNAPD="S99keensnap"
-PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap-init.sh"
 PATH_SNAPD="/opt/etc/init.d/S99keensnap"
 CONFIG_FILE="/opt/root/KeenSnap/config.sh"
+PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap-init.sh"
 CONFIG_TEMPLATE="config.template"
 SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' $PATH_SNAPD)
 
@@ -37,6 +37,7 @@ EOF
   echo "1. Настроить конфигурацию"
   echo "2. Настроить тип бэкапа"
   echo "3. Подключить Telegram"
+  echo "4. Тестовый бэкап"
   echo ""
   echo "77. Удалить файлы"
   echo "99. Обновить скрипт"
@@ -57,6 +58,7 @@ main_menu() {
     1) setup_config ;;
     2) select_backup_options ;;
     3) connect_telegram ;;
+    4) test_backup ;;
     77) remove_script ;;
     99) script_update "main" ;;
     999) script_update "dev" ;;
@@ -78,11 +80,17 @@ print_message() {
 }
 
 exit_function() {
+  echo ""
   read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
   main_menu
 }
 
 setup_config() {
+  schedule_output=$(ndmc -c "show sc schedule" | grep "name")
+  if [ -z "$schedule_output" ]; then
+    print_message "Расписания не найдены" "$RED"
+    exit_function
+  fi
   local CONFIG_TEMPLATE_URL="https://raw.githubusercontent.com/$USERNAME/$REPO/main/$CONFIG_TEMPLATE"
   local TEMP_TEMPLATE_FILE="$TMP_DIR/$CONFIG_TEMPLATE"
 
@@ -99,7 +107,7 @@ setup_config() {
   local config_template=$(cat "$TEMP_TEMPLATE_FILE")
 
   if [ ! -f "$CONFIG_FILE" ]; then
-    print_message "Конфигурационный файл не найден, создаём его..." "$CYAN"
+    print_message "Создаю конфигурационный файл..." "$CYAN"
     mkdir -p "$KEENSNAP_DIR"
     echo "$config_template" >"$CONFIG_FILE"
   else
@@ -131,12 +139,6 @@ fi
 
 EOL
     chmod +x "$PATH_SCHEDULE"
-  fi
-
-  schedule_output=$(ndmc -c "show sc schedule")
-  if [ -z "$schedule_output" ]; then
-    echo "Не удалось получить список расписаний."
-    exit_function
   fi
 
   local current_schedule=""
@@ -187,11 +189,6 @@ EOF
     schedules="$schedules\n$index:$current_schedule"
     index=$((index + 1))
     found=1
-  fi
-
-  if [ "$found" -eq 0 ]; then
-    print_message "Расписания не найдены" "$RED"
-    exit_function
   fi
 
   echo ""
@@ -271,6 +268,12 @@ check_config() {
     exit_function
   fi
 }
+
+test_backup() {
+  $PATH_SNAPD start schedule1
+  exit_function
+}
+
 identify_external_drive() {
   local message=$1
   local message2=$2
@@ -289,7 +292,7 @@ identify_external_drive() {
   while IFS= read -r line; do
     if echo "$line" | grep -q "name: Media"; then
       media_found=1
-      echo "0. Встроенное хранилище $message2"
+      echo "0. Встроенное хранилище (может не хватить места) $message2"
     elif [ "$media_found" = "1" ]; then
       if echo "$line" | grep -q "uuid:"; then
         uuid=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
