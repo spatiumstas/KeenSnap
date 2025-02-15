@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 
-SCRIPT_VERSION="v1.0"
+SCRIPT_VERSION="v1.0.1"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 PATH_INITD="/opt/etc/init.d/S99keensnap"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
@@ -125,7 +125,7 @@ start)
         local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
         local folder_path="$device_uuid:/$date"
         local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
-        ndmc -c "copy $item_name $backup_file" 2>&1 | grep -v "unable to update a window line size"
+        ndmc -c "copy $item_name $backup_file" 2>&1
         if [ $? -eq 0 ]; then
           success "$item_name сохранён"
           success=0
@@ -184,7 +184,7 @@ start)
         local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
         local folder_path="$device_uuid:/$date"
         local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
-        ndmc -c "copy flash:/$item_name $backup_file" 2>&1 | grep -v "unable to update a window line size"
+        ndmc -c "copy flash:/$item_name $backup_file" 2>&1
         if [ $? -eq 0 ]; then
           success "$item_name сохранена"
           success=0
@@ -257,8 +257,12 @@ start)
 
       send_to_telegram "$report" "$archive_path"
       rm -rf "$SELECTED_DRIVE/$date"
-      rm -rf "$archive_path"
-      log "Временные файлы удалены"
+      if [ "$DELETE_ARCHIVE_AFTER_BACKUP" = "true" ]; then
+        rm -rf "$archive_path"
+        log "Архив удалён"
+      else
+        log "Архив сохранён: $archive_path"
+      fi
     }
 
     main() {

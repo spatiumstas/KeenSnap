@@ -73,9 +73,9 @@ main_menu() {
 }
 
 print_message() {
-  local message="$1"
-  local color="${2:-$NC}"
-  local border=$(printf '%0.s-' $(seq 1 $((${#message} + 2))))
+  message="$1"
+  color="${2:-$NC}"
+  border=$(printf '%0.s-' $(seq 1 $((${#message} + 2))))
   printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n${NC}\n"
 }
 
@@ -85,14 +85,84 @@ exit_function() {
   main_menu
 }
 
-setup_config() {
-  schedule_output=$(ndmc -c "show sc schedule" | grep "name")
-  if [ -z "$schedule_output" ]; then
-    print_message "Расписания не найдены" "$RED"
-    exit_function
+create_config() {
+  if [ ! -f "$PATH_SCHEDULE" ]; then
+    cat <<'EOL' >"$PATH_SCHEDULE"
+#!/bin/sh
+source /opt/root/KeenSnap/config.sh
+
+if [ "$1" = "start" ] && [ "$schedule" = "$SCHEDULE_NAME" ]; then
+  $PATH_SNAPD start "$schedule"
+else
+  exit 0
+fi
+
+EOL
+    chmod +x "$PATH_SCHEDULE"
   fi
-  local CONFIG_TEMPLATE_URL="https://raw.githubusercontent.com/$USERNAME/$REPO/main/$CONFIG_TEMPLATE"
-  local TEMP_TEMPLATE_FILE="$TMP_DIR/$CONFIG_TEMPLATE"
+}
+
+select_schedule() {
+  message=$1
+  schedules=""
+  descs=""
+  index=1
+  schedule_output=$(ndmc -c show sc schedule)
+
+  while IFS= read -r line; do
+    if echo "$line" | grep -q "^\s*name:" && ! echo "$line" | grep -q "config"; then
+      if [ -n "$current_schedule" ]; then
+        if [ -n "$current_desc" ]; then
+          echo "$index. $current_schedule ($current_desc)"
+        else
+          echo "$index. $current_schedule"
+        fi
+        schedules="$schedules $index:$current_schedule"
+        descs="$descs $index:$current_desc"
+        index=$((index + 1))
+      fi
+      current_schedule=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
+      current_desc=""
+    fi
+
+    if echo "$line" | grep -q "^\s*description:"; then
+      current_desc=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
+    fi
+  done <<EOF
+$schedule_output
+EOF
+
+  if [ -n "$current_schedule" ]; then
+    if [ -n "$current_desc" ]; then
+      echo "$index. $current_schedule ($current_desc)"
+    else
+      echo "$index. $current_schedule"
+    fi
+    schedules="$schedules $index:$current_schedule"
+    descs="$descs $index:$current_desc"
+  fi
+
+  if [ -z "$schedules" ]; then
+    print_message "Расписания не найдены" "$RED"
+    return 1
+  fi
+
+  echo ""
+  read -p "$message " choice
+  choice=$(echo "$choice" | tr -d ' \n\r')
+
+  SCHEDULE_SELECTED=$(echo "$schedules" | tr ' ' '\n' | grep "^$choice:" | cut -d ':' -f2)
+  if [ -z "$SCHEDULE_SELECTED" ]; then
+    echo "Неверный выбор!"
+    return 1
+  fi
+
+  return 0
+}
+
+setup_config() {
+  CONFIG_TEMPLATE_URL="https://raw.githubusercontent.com/$USERNAME/$REPO/main/$CONFIG_TEMPLATE"
+  TEMP_TEMPLATE_FILE="$TMP_DIR/$CONFIG_TEMPLATE"
 
   print_message "Обновляю шаблон конфигурации..."
 
@@ -104,7 +174,7 @@ setup_config() {
     exit_function
   fi
 
-  local config_template=$(cat "$TEMP_TEMPLATE_FILE")
+  config_template=$(cat "$TEMP_TEMPLATE_FILE")
 
   if [ ! -f "$CONFIG_FILE" ]; then
     print_message "Создаю конфигурационный файл..." "$CYAN"
@@ -126,85 +196,14 @@ setup_config() {
     chmod +x "$PATH_SNAPD"
   fi
 
-  if [ ! -f "$PATH_SCHEDULE" ]; then
-    cat <<'EOL' >"$PATH_SCHEDULE"
-#!/bin/sh
-source /opt/root/KeenSnap/config.sh
-
-if [ "$1" = "start" ] && [ "$schedule" = "$SCHEDULE_NAME" ]; then
-  $PATH_SNAPD start "$schedule"
-else
-  exit 0
-fi
-
-EOL
-    chmod +x "$PATH_SCHEDULE"
-  fi
-
-  local current_schedule=""
-  local desc=""
-  local index=1
-  local schedules=""
-  local found=0
-
-  while IFS= read -r line; do
-    if echo "$line" | grep -q "^\s*config, name = schedule:"; then
-      if [ -n "$current_schedule" ]; then
-        if [ -n "$desc" ]; then
-          output_line="$index) $current_schedule ($desc)"
-        else
-          output_line="$index) $current_schedule"
-        fi
-        echo "$output_line"
-        schedules="$schedules\n$index:$current_schedule"
-        index=$((index + 1))
-        found=1
-      fi
-
-      current_schedule=""
-      desc=""
-    fi
-
-    if echo "$line" | grep -q "^\s*name:" && ! echo "$line" | grep -q "config"; then
-      current_schedule=$(echo "$line" | awk -F ': ' '{print $2}' | tr -d ' ')
-    fi
-
-    if echo "$line" | grep -q "^\s*config, name = description, final = yes:"; then
-      read -r next_line
-      if echo "$next_line" | grep -q "^\s*description:"; then
-        desc=$(echo "$next_line" | awk -F ': ' '{print $2}' | sed 's/^ *//g')
-      fi
-    fi
-  done <<EOF
-  $schedule_output
-EOF
-
-  if [ -n "$current_schedule" ]; then
-    if [ -n "$desc" ]; then
-      output_line="$index) $current_schedule ($desc)"
-    else
-      output_line="$index) $current_schedule"
-    fi
-    echo "$output_line"
-    schedules="$schedules\n$index:$current_schedule"
-    index=$((index + 1))
-    found=1
-  fi
-
-  echo ""
-  read -p "Выберите номер расписания: " choice
-  choice=$(echo "$choice" | tr -d ' \n\r')
-
-  SCHEDULE_SELECTED=$(echo -e "$schedules" | grep "^$choice:" | cut -d ':' -f2)
-  if [ -z "$SCHEDULE_SELECTED" ]; then
-    echo "Неверный выбор!"
+  create_config
+  if ! select_schedule "Выберите номер расписания:"; then
     exit_function
   fi
 
   print_message "Вы выбрали: $SCHEDULE_SELECTED" "$CYAN"
 
   sed -i "s|^SCHEDULE_NAME=.*|SCHEDULE_NAME=\"$SCHEDULE_SELECTED\"|" "$CONFIG_FILE"
-
   identify_external_drive "Выберите накопитель для временного бэкапа:"
   sed -i "s|^SELECTED_DRIVE=.*|SELECTED_DRIVE=\"$selected_drive\"|" "$CONFIG_FILE"
   print_message "Вы выбрали: $selected_drive" "$CYAN"
@@ -217,9 +216,9 @@ EOF
 select_backup_options() {
   check_config
   echo "Текущая конфигурация:"
-  grep "^BACKUP_" "$CONFIG_FILE"
+  grep "BACKUP" "$CONFIG_FILE"
   echo ""
-  options="BACKUP_STARTUP_CONFIG BACKUP_FIRMWARE BACKUP_ENTWARE BACKUP_WG_PRIVATE_KEY"
+  options="BACKUP_STARTUP_CONFIG BACKUP_FIRMWARE BACKUP_ENTWARE BACKUP_WG_PRIVATE_KEY DELETE_ARCHIVE_AFTER_BACKUP"
 
   i=1
   for option in $options; do
@@ -228,7 +227,7 @@ select_backup_options() {
   done
 
   echo ""
-  read -p "Выберите, что бэкапить разделив пробелами: " user_choice
+  read -p "Выберите параметры, разделив пробелом: " user_choice
 
   for option in $options; do
     sed -i "s/^$option=.*/$option=false/" "$CONFIG_FILE"
@@ -275,9 +274,9 @@ test_backup() {
 }
 
 identify_external_drive() {
-  local message=$1
-  local message2=$2
-  local special_message=$3
+  message=$1
+  message2=$2
+  special_message=$3
   labels=""
   uuids=""
   index=1
@@ -285,8 +284,8 @@ identify_external_drive() {
   media_output=$(ndmc -c show media)
 
   if [ -z "$media_output" ]; then
-    echo "Не удалось получить список накопителей."
-    return
+    print_message "Не удалось получить список накопителей" "$RED"
+    return 1
   fi
 
   while IFS= read -r line; do
@@ -314,7 +313,7 @@ EOF
   choice=$(echo "$choice" | tr -d ' \n\r')
   echo ""
   if [ "$choice" = "0" ]; then
-    selected_drive="$STORAGE_DIR"
+    selected_drive="/storage"
   else
     selected_drive=$(echo "$uuids" | awk -v choice="$choice" '{split($0, a, " "); print a[choice]}')
     if [ -z "$selected_drive" ]; then
@@ -341,18 +340,9 @@ packages_checker() {
   fi
 }
 
-url() {
-  PART1="aHR0cHM6Ly9sb2c"
-  PART2="uc3BhdGl1bS5rZWVuZXRpYy5wcm8="
-  PART3="${PART1}${PART2}"
-  URL=$(echo "$PART3" | base64 -d)
-  echo "${URL}"
-}
-
 post_update() {
-  URL=$(url)
   JSON_DATA="{\"script_update\": \"KeenSnap_update_$SCRIPT_VERSION\"}"
-  curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
+  curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "https://log.spatium.keenetic.pro" -o /dev/null -s
   main_menu
 }
 
