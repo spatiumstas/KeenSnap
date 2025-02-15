@@ -255,8 +255,12 @@ start)
         i=$((i + 1))
       done
 
-      send_to_telegram "$report" "$archive_path"
       rm -rf "$SELECTED_DRIVE/$date"
+
+      if [ "$SEND_BACKUP_TG" = "true" ]; then
+        send_to_telegram "$report" "$archive_path"
+      fi
+
       if [ "$DELETE_ARCHIVE_AFTER_BACKUP" = "true" ]; then
         rm -rf "$archive_path"
         log "Архив удалён"

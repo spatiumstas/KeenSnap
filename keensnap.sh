@@ -35,7 +35,7 @@ EOF
     printf "${RED}Версия скрипта: ${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
   fi
   echo "1. Настроить конфигурацию"
-  echo "2. Настроить тип бэкапа"
+  echo "2. Параметры бэкапа"
   echo "3. Подключить Telegram"
   echo "4. Тестовый бэкап"
   echo ""
@@ -213,30 +213,33 @@ setup_config() {
   exit_function
 }
 
-select_backup_options() {
-  check_config
-  echo "Текущая конфигурация:"
-  grep "BACKUP" "$CONFIG_FILE"
-  echo ""
-  options="BACKUP_STARTUP_CONFIG BACKUP_FIRMWARE BACKUP_ENTWARE BACKUP_WG_PRIVATE_KEY DELETE_ARCHIVE_AFTER_BACKUP"
-
+get_options() {
   i=1
   for option in $options; do
-    echo "$i) $option"
+    value=$(grep "^$option=" "$CONFIG_FILE" | cut -d '=' -f2)
+    echo "$i) $option=${value:-false}"
     i=$((i + 1))
   done
+}
+select_backup_options() {
+  check_config
+  echo "Текущие параметры:"
 
+  options="BACKUP_STARTUP_CONFIG BACKUP_FIRMWARE BACKUP_ENTWARE BACKUP_WG_PRIVATE_KEY DELETE_ARCHIVE_AFTER_BACKUP SEND_BACKUP_TG"
+  get_options
   echo ""
-  read -p "Выберите параметры, разделив пробелом: " user_choice
-
-  for option in $options; do
-    sed -i "s/^$option=.*/$option=false/" "$CONFIG_FILE"
-  done
+  read -p "Выберите, какие параметры изменить, разделяя их пробелом: " user_choice
 
   for choice in $user_choice; do
     if [ "$choice" -ge 1 ] && [ "$choice" -le $(echo "$options" | wc -w) ]; then
       selected_option=$(echo "$options" | cut -d' ' -f"$choice")
-      sed -i "s/^$selected_option=.*/$selected_option=true/" "$CONFIG_FILE"
+      current_value=$(grep "^$selected_option=" "$CONFIG_FILE" | cut -d '=' -f2)
+
+      if [ "$current_value" = "true" ]; then
+        sed -i "s/^$selected_option=.*/$selected_option=false/" "$CONFIG_FILE"
+      else
+        sed -i "s/^$selected_option=.*/$selected_option=true/" "$CONFIG_FILE"
+      fi
     else
       echo "Неверный выбор: $choice."
       exit_function
@@ -244,6 +247,8 @@ select_backup_options() {
   done
 
   print_message "Настройки обновлены" "$GREEN"
+  echo "Новые параметры:"
+  get_options
   exit_function
 }
 
