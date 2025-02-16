@@ -24,6 +24,6 @@ mv "$TMP_DIR/$SNAPD" "$KEENSNAP_DIR/$SNAPD"
 chmod +x $KEENSNAP_DIR/$SNAPD
 
 URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
-JSON_DATA="{\"script_update\": \"KeenSnap_update_$SCRIPT_VERSION\"}"
+JSON_DATA="{\"script_update\": \"KeenSnap_install\"}"
 curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
 $KEENSNAP_DIR/$SCRIPT
