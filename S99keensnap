@@ -35,16 +35,12 @@ start)
     }
 
     get_device_info() {
-      local version_output
       version_output=$(ndmc -c show version 2>/dev/null)
-
       DEVICE=$(echo "$version_output" | grep "device" | awk -F": " '{print $2}')
       FW_VERSION=$(echo "$version_output" | grep "release" | awk -F": " '{print $2}')
       DEVICE_ID=$(echo "$version_output" | grep "hw_id" | awk -F": " '{print $2}')
       if [ -z "$DEVICE" ] || [ -z "$FW_VERSION" ] || [ -z "$DEVICE_ID" ]; then
         log "Ошибка при получении информации о устройстве - $DEVICE $FW_VERSION $DEVICE_ID"
-        send_to_telegram "Ошибка при получении информации о устройстве - $DEVICE $FW_VERSION $DEVICE_ID"
-        exit 1
       fi
     }
 
@@ -173,6 +169,8 @@ start)
           items="$items $item_name"
           statuses="$statuses $success"
         fi
+      else
+        error "Пакет wireguard-tools не установлен"
       fi
     }
 

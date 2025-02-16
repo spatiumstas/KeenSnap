@@ -85,7 +85,7 @@ exit_function() {
   main_menu
 }
 
-create_config() {
+create_schedule_init() {
   if [ ! -f "$PATH_SCHEDULE" ]; then
     cat <<'EOL' >"$PATH_SCHEDULE"
 #!/bin/sh
@@ -93,9 +93,8 @@ source /opt/root/KeenSnap/config.sh
 
 if [ "$1" = "start" ] && [ "$schedule" = "$SCHEDULE_NAME" ]; then
   $PATH_SNAPD start "$schedule"
-else
-  exit 0
 fi
+exit 0
 
 EOL
     chmod +x "$PATH_SCHEDULE"
@@ -160,16 +159,17 @@ EOF
   return 0
 }
 
-setup_config() {
+update_config() {
+  silent=$1
   CONFIG_TEMPLATE_URL="https://raw.githubusercontent.com/$USERNAME/$REPO/main/$CONFIG_TEMPLATE"
   TEMP_TEMPLATE_FILE="$TMP_DIR/$CONFIG_TEMPLATE"
 
-  print_message "Обновляю шаблон конфигурации..."
+  [ -z "$silent" ] && print_message "Обновляю шаблон конфигурации..."
 
   HTTP_STATUS=$(curl -s -o "$TEMP_TEMPLATE_FILE" -w "%{http_code}" "$CONFIG_TEMPLATE_URL")
 
   if [ "$HTTP_STATUS" -ne 200 ]; then
-    print_message "Не удалось скачать шаблон конфигурации! HTTP-статус: $HTTP_STATUS" "$RED"
+    [ -z "$silent" ] && print_message "Не удалось скачать шаблон конфигурации. HTTP-статус: $HTTP_STATUS" "$RED"
     rm -f "$TEMP_TEMPLATE_FILE"
     exit_function
   fi
@@ -177,26 +177,34 @@ setup_config() {
   config_template=$(cat "$TEMP_TEMPLATE_FILE")
 
   if [ ! -f "$CONFIG_FILE" ]; then
-    print_message "Создаю конфигурационный файл..." "$CYAN"
-    mkdir -p "$KEENSNAP_DIR"
-    echo "$config_template" >"$CONFIG_FILE"
+    [ -z "$silent" ] && print_message "Создаю конфигурационный файл..." "$CYAN"
+    {
+      mkdir -p "$KEENSNAP_DIR"
+      echo "$config_template" >"$CONFIG_FILE"
+    } >/dev/null 2>&1
   else
-    echo "$config_template" | while IFS= read -r line; do
-      param_name=$(echo "$line" | awk -F'=' '{print $1}')
-      if ! grep -q "^$param_name=" "$CONFIG_FILE"; then
-        echo "$line" >>"$CONFIG_FILE"
-      fi
-    done
+    {
+      echo "$config_template" | while IFS= read -r line; do
+        param_name=$(echo "$line" | awk -F'=' '{print $1}')
+        if ! grep -q "^$param_name=" "$CONFIG_FILE"; then
+          echo "$line" >>"$CONFIG_FILE"
+        fi
+      done
+    } >/dev/null 2>&1
   fi
 
   rm -f "$TEMP_TEMPLATE_FILE"
+}
+
+setup_config() {
+  update_config
 
   if [ ! -f "$PATH_SNAPD" ]; then
     curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SNAPD" --output "$PATH_SNAPD"
     chmod +x "$PATH_SNAPD"
   fi
 
-  create_config
+  create_schedule_init
   if ! select_schedule "Выберите номер расписания:"; then
     exit_function
   fi
@@ -204,7 +212,7 @@ setup_config() {
   print_message "Вы выбрали: $SCHEDULE_SELECTED" "$CYAN"
 
   sed -i "s|^SCHEDULE_NAME=.*|SCHEDULE_NAME=\"$SCHEDULE_SELECTED\"|" "$CONFIG_FILE"
-  identify_external_drive "Выберите накопитель для временного бэкапа:"
+  identify_external_drive "Выберите накопитель для бэкапа:"
   sed -i "s|^SELECTED_DRIVE=.*|SELECTED_DRIVE=\"$selected_drive\"|" "$CONFIG_FILE"
   print_message "Вы выбрали: $selected_drive" "$CYAN"
 
@@ -346,9 +354,9 @@ packages_checker() {
 }
 
 post_update() {
+  URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
   JSON_DATA="{\"script_update\": \"KeenSnap_update_$SCRIPT_VERSION\"}"
-  curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "https://log.spatium.keenetic.pro" -o /dev/null -s
-  main_menu
+  curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
 }
 
 script_update() {
@@ -371,6 +379,8 @@ script_update() {
       sleep 1
     fi
     $KEENSNAP_DIR/$SCRIPT post_update
+    update_config 1
+    main_menu
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
   fi
