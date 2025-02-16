@@ -4,7 +4,6 @@ source /opt/root/KeenSnap/config.sh
 
 SCRIPT_VERSION="v1.0.1"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
-PATH_INITD="/opt/etc/init.d/S99keensnap"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M-%S)"
 items=""

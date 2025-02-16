@@ -11,12 +11,11 @@ TMP_DIR="/tmp"
 OPT_DIR="/opt"
 
 KEENSNAP_DIR="/opt/root/KeenSnap"
-SNAPD="S99keensnap"
-PATH_SNAPD="/opt/etc/init.d/S99keensnap"
+SNAPD="keensnap-init"
 CONFIG_FILE="/opt/root/KeenSnap/config.sh"
-PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap-init.sh"
+PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 CONFIG_TEMPLATE="config.template"
-SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' $PATH_SNAPD)
+SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' $KEENSNAP_DIR/$SNAPD)
 
 print_menu() {
   printf "\033c"
@@ -29,7 +28,7 @@ print_menu() {
  |_|\_\___|\___|_| |_|____/|_| |_|\__,_| .__/
                                        |_|
 EOF
-  if [ ! -f $PATH_SNAPD ]; then
+  if [ ! -f $KEENSNAP_DIR/$SNAPD ]; then
     printf "${RED}Конфигурация не настроена${NC}\n\n"
   else
     printf "${RED}Версия скрипта: ${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
@@ -92,7 +91,7 @@ create_schedule_init() {
 source /opt/root/KeenSnap/config.sh
 
 if [ "$1" = "start" ] && [ "$schedule" = "$SCHEDULE_NAME" ]; then
-  $PATH_SNAPD start "$schedule"
+  $KEENSNAP_DIR/$SNAPD start "$schedule"
 fi
 exit 0
 
@@ -199,9 +198,9 @@ update_config() {
 setup_config() {
   update_config
 
-  if [ ! -f "$PATH_SNAPD" ]; then
-    curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SNAPD" --output "$PATH_SNAPD"
-    chmod +x "$PATH_SNAPD"
+  if [ ! -f "$KEENSNAP_DIR/$SNAPD" ]; then
+    curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SNAPD" --output "$KEENSNAP_DIR/$SNAPD"
+    chmod +x "$KEENSNAP_DIR/$SNAPD"
   fi
 
   create_schedule_init
@@ -282,7 +281,7 @@ check_config() {
 }
 
 test_backup() {
-  $PATH_SNAPD start schedule1
+  $KEENSNAP_DIR/$SNAPD start schedule1
   exit_function
 }
 
@@ -339,8 +338,8 @@ EOF
 }
 
 remove_script() {
-  echo "Удаляю хук $PATH_SNAPD..."
-  rm -r "$PATH_SNAPD" 2>/dev/null
+  echo "Удаляю хук $KEENSNAP_DIR/$SNAPD..."
+  rm -r "$KEENSNAP_DIR/$SNAPD" 2>/dev/null
 
   print_message "Успешно удалено" "$GREEN"
   exit_function
@@ -363,8 +362,8 @@ script_update() {
   BRANCH="$1"
   packages_checker
   curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SCRIPT" --output $TMP_DIR/$SCRIPT
-  curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SNAPD" --output $PATH_SNAPD
-  chmod +x $PATH_SNAPD
+  curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SNAPD" --output $KEENSNAP_DIR/$SNAPD
+  chmod +x $KEENSNAP_DIR/$SNAPD
 
   if [ -f "$TMP_DIR/$SCRIPT" ]; then
     mv "$TMP_DIR/$SCRIPT" "$KEENSNAP_DIR/$SCRIPT"

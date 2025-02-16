@@ -1,5 +1,5 @@
 LOG_FILE="/opt/root/KeenSnap/log.txt"
-PATH_SNAPD="/opt/etc/init.d/S99keensnap"
+PATH_SNAPD="/opt/root/KeenSnap/keensnap-init"
 SCHEDULE_NAME=""
 SELECTED_DRIVE=""
 BOT_TOKEN=""
