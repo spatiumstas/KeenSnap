@@ -1,5 +1,5 @@
 #!/bin/sh
-
+source /opt/root/KeenSnap/config.sh
 RED='\033[1;31m'
 GREEN='\033[1;32m'
 CYAN='\033[0;36m'
@@ -85,19 +85,17 @@ exit_function() {
 }
 
 create_schedule_init() {
-  if [ ! -f "$PATH_SCHEDULE" ]; then
-    cat <<'EOL' >"$PATH_SCHEDULE"
+  cat <<'EOL' >"$PATH_SCHEDULE"
 #!/bin/sh
 source /opt/root/KeenSnap/config.sh
 
 if [ "$1" = "start" ] && [ "$schedule" = "$SCHEDULE_NAME" ]; then
-  $KEENSNAP_DIR/$SNAPD start "$schedule"
+  $PATH_SNAPD start "$schedule"
 fi
 exit 0
 
 EOL
-    chmod +x "$PATH_SCHEDULE"
-  fi
+  chmod +x "$PATH_SCHEDULE"
 }
 
 select_schedule() {
@@ -193,6 +191,7 @@ update_config() {
   fi
 
   rm -f "$TEMP_TEMPLATE_FILE"
+  create_schedule_init
 }
 
 setup_config() {
@@ -203,7 +202,6 @@ setup_config() {
     chmod +x "$KEENSNAP_DIR/$SNAPD"
   fi
 
-  create_schedule_init
   if ! select_schedule "Выберите номер расписания:"; then
     exit_function
   fi
@@ -281,7 +279,7 @@ check_config() {
 }
 
 test_backup() {
-  $KEENSNAP_DIR/$SNAPD start schedule1
+  $KEENSNAP_DIR/$SNAPD start $SCHEDULE_NAME
   exit_function
 }
 
