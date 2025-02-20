@@ -279,7 +279,7 @@ check_config() {
 }
 
 test_backup() {
-  $KEENSNAP_DIR/$SNAPD start $SCHEDULE_NAME
+  $KEENSNAP_DIR/$SNAPD start test
   exit_function
 }
 
