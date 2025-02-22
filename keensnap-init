@@ -2,10 +2,10 @@
 
 source /opt/root/KeenSnap/config.sh
 
-SCRIPT_VERSION="v1.0.1"
+SCRIPT_VERSION="v1.0.2"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
-date="backup$(date +%Y-%m-%d_%H-%M-%S)"
+date="backup$(date +%Y-%m-%d_%H-%M)"
 items=""
 statuses=""
 
@@ -41,6 +41,18 @@ start)
       if [ -z "$DEVICE" ] || [ -z "$FW_VERSION" ] || [ -z "$DEVICE_ID" ]; then
         log "Ошибка при получении информации о устройстве - $DEVICE $FW_VERSION $DEVICE_ID"
       fi
+    }
+
+    get_architecture() {
+      arch=$(opkg print-architecture | grep -oE 'mips-3|mipsel-3|aarch64-3|armv7' | head -n 1)
+
+      case "$arch" in
+      "mips-3") echo "mips" ;;
+      "mipsel-3") echo "mipsel" ;;
+      "aarch64-3") echo "aarch64" ;;
+      "armv7") echo "armv7" ;;
+      *) echo "unknown_arch" ;;
+      esac
     }
 
     clean_log() {
@@ -104,7 +116,7 @@ start)
       fi
 
       if [ "$response" -eq 200 ]; then
-        success "Сообщение успешно отправлено в Telegram."
+        success "Сообщение успешно отправлено в Telegram"
         return 0
       else
         error "Ошибка отправки в Telegram (HTTP $response). Ответ сервера: $response_body"
@@ -116,7 +128,7 @@ start)
       local success=1
       local item_name="startup-config"
       if [ -n "$SELECTED_DRIVE" ]; then
-        log "Начинаю бэкап $item_name"
+        log "Бэкап $item_name..."
         local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
         local folder_path="$device_uuid:/$date"
         local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
@@ -136,8 +148,8 @@ start)
       local success=1
       local item_name="Entware"
       if [ -n "$SELECTED_DRIVE" ]; then
-        log "Начинаю бэкап $item_name"
-        local backup_file="$SELECTED_DRIVE/$date/$item_name.tar.gz"
+        log "Бэкап $item_name..."
+        local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
         tar cvzf "$backup_file" -C /opt . >/dev/null 2>&1
         if [ $? -eq 0 ]; then
           success "$item_name сохранён"
@@ -155,7 +167,7 @@ start)
       local item_name="WireGuard-Private-Key"
       if opkg list-installed | grep -q "^wireguard-tools"; then
         if [ -n "$SELECTED_DRIVE" ]; then
-          log "Начинаю бэкап $item_name"
+          log "Бэкап $item_name..."
           local folder_path="$SELECTED_DRIVE/$date"
           local backup_file="$folder_path/$item_name.txt"
           wg show all private-key >"$backup_file"
@@ -177,7 +189,7 @@ start)
       local success=1
       local item_name="firmware"
       if [ -n "$SELECTED_DRIVE" ]; then
-        log "Начинаю бэкап $item_name"
+        log "Бэкап $item_name..."
         local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
         local folder_path="$device_uuid:/$date"
         local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
@@ -228,10 +240,12 @@ start)
       if [ -n "$SELECTED_DRIVE" ] && [ -d "$SELECTED_DRIVE/$date" ]; then
         cp "$LOG_FILE" "$SELECTED_DRIVE/$date/backup_log.txt"
         archive_path="$SELECTED_DRIVE/${DEVICE_ID}_$date.tar.gz"
+        log "Создание архива..."
         tar -czf "$archive_path" -C "$SELECTED_DRIVE" "$date"
         if [ $? -ne 0 ]; then
-          error "Ошибка при создании архива."
-          send_to_telegram "Ошибка при создании архива."
+          error "Ошибка при создании архива"
+          send_to_telegram "Ошибка при создании архива" "$SELECTED_DRIVE/$date/backup_log.txt"
+          rm -rf "$archive_path"
           return 1
         fi
         success "Архив создан"
@@ -252,8 +266,6 @@ start)
         i=$((i + 1))
       done
 
-      rm -rf "$SELECTED_DRIVE/$date"
-
       if [ "$SEND_BACKUP_TG" = "true" ]; then
         send_to_telegram "$report" "$archive_path"
       fi
@@ -266,11 +278,16 @@ start)
       fi
     }
 
+    delete_temp_folder() {
+      rm -rf "$SELECTED_DRIVE/$date"
+    }
+
     main() {
       clean_log "$LOG_FILE"
       get_device_info
       log "Запуск скрипта для расписания $SCHEDULE"
       create_backup_and_send_report
+      delete_temp_folder
       log "Скрипт завершил работу"
     }
 
