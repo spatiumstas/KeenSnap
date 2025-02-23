@@ -36,7 +36,7 @@ EOF
   echo "1. Настроить конфигурацию"
   echo "2. Параметры бэкапа"
   echo "3. Подключить Telegram"
-  echo "4. Тестовый бэкап"
+  echo "4. Ручной бэкап"
   echo ""
   echo "77. Удалить файлы"
   echo "99. Обновить скрипт"
@@ -57,7 +57,7 @@ main_menu() {
     1) setup_config ;;
     2) select_backup_options ;;
     3) connect_telegram ;;
-    4) test_backup ;;
+    4) manual_backup ;;
     77) remove_script ;;
     99) script_update "main" ;;
     999) script_update "dev" ;;
@@ -278,8 +278,8 @@ check_config() {
   fi
 }
 
-test_backup() {
-  $KEENSNAP_DIR/$SNAPD start test
+manual_backup() {
+  $KEENSNAP_DIR/$SNAPD start manual
   exit_function
 }
 

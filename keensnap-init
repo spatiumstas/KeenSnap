@@ -122,7 +122,7 @@ start)
         rm -f "$file_path"
 
         if [ "$archive_size" -le "$max_size" ]; then
-          log "Отправка архива: $new_archive ($archive_size байт)"
+          log "Отправка архива: $new_archive"
           response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
             -F "document=@$new_archive" \
             -F "caption=$escaped_caption" \
@@ -169,70 +169,89 @@ start)
       fi
     }
 
-    perform_backup() {
+    backup_startup_config() {
       local success=1
-      local item_name="$1"
-      local backup_cmd="$2"
-      local backup_file="$3"
+      local item_name="startup-config"
 
       if [ -n "$SELECTED_DRIVE" ]; then
-        local backup_dir=$(dirname "$backup_file")
-
-        if ! mkdir -p "$backup_dir" 2>>"$LOG_FILE"; then
-          error "Не удалось создать директорию $backup_dir для бэкапа $item_name"
-          items="$items $item_name"
-          statuses="$statuses 1"
-          return 1
-        fi
 
         log "Бэкап $item_name..."
-        if eval "$backup_cmd" >"$backup_file" 2>>"$LOG_FILE"; then
+        local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
+        local folder_path="$device_uuid:/$date"
+        local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
+        ndmc -c "copy $item_name $backup_file" 2>&1
+        if [ $? -eq 0 ]; then
           success "$item_name сохранён"
           success=0
         else
           error "Ошибка при сохранении $item_name"
-          rm -f "$backup_file" 2>/dev/null
+
         fi
       fi
       items="$items $item_name"
       statuses="$statuses $success"
     }
 
-    backup_startup_config() {
-      local item_name="startup-config"
-      local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
-      local folder_path="$device_uuid:/$date"
-      local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
-      perform_backup "$item_name" "ndmc -c 'copy $item_name $backup_file'" "$backup_file"
-    }
-
     backup_entware() {
+      local success=1
       local item_name="Entware"
-      local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
-      perform_backup "$item_name" "tar cvzf $backup_file -C /opt ." "$backup_file"
+      if [ -n "$SELECTED_DRIVE" ]; then
+        log "Бэкап $item_name..."
+        local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
+        tar cvzf "$backup_file" -C /opt . >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+          success "$item_name сохранён"
+          success=0
+        else
+          error "Ошибка при сохранении $item_name"
+        fi
+      fi
+      items="$items $item_name"
+      statuses="$statuses $success"
     }
 
     backup_wg_private_key() {
+      local success=1
       local item_name="WireGuard-Private-Key"
-      if opkg list-installed | grep -q "^wireguard-tools"; then
+      if ! opkg list-installed | grep -q "^wireguard-tools"; then
+        opkg update
+        opkg install wireguard-tools
         if [ -n "$SELECTED_DRIVE" ]; then
+          log "Бэкап $item_name..."
           local folder_path="$SELECTED_DRIVE/$date"
           local backup_file="$folder_path/$item_name.txt"
-          perform_backup "$item_name" "wg show all private-key >$backup_file" "$backup_file"
+          wg show all private-key >"$backup_file"
+          if [ $? -eq 0 ]; then
+            success "$item_name сохранён"
+            success=0
+          else
+            error "Ошибка при сохранении $item_name"
+          fi
+          items="$items $item_name"
+          statuses="$statuses $success"
         fi
-      else
-        error "Пакет wireguard-tools не установлен"
-        items="$items $item_name"
-        statuses="$statuses 1"
       fi
+
     }
 
     backup_firmware() {
+      local success=1
       local item_name="firmware"
-      local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
-      local folder_path="$device_uuid:/$date"
-      local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
-      perform_backup "$item_name" "ndmc -c 'copy flash:/$item_name $backup_file'" "$backup_file"
+      if [ -n "$SELECTED_DRIVE" ]; then
+        log "Бэкап $item_name..."
+        local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
+        local folder_path="$device_uuid:/$date"
+        local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
+        ndmc -c "copy flash:/$item_name $backup_file" 2>&1
+        if [ $? -eq 0 ]; then
+          success "$item_name сохранена"
+          success=0
+        else
+          error "Ошибка при сохранении $item_name"
+        fi
+      fi
+      items="$items $item_name"
+      statuses="$statuses $success"
     }
 
     create_backup_and_send_report() {
