@@ -216,22 +216,21 @@ start)
       if ! opkg list-installed | grep -q "^wireguard-tools"; then
         opkg update
         opkg install wireguard-tools
-        if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
-          local folder_path="$SELECTED_DRIVE/$date"
-          local backup_file="$folder_path/$item_name.txt"
-          wg show all private-key >"$backup_file"
-          if [ $? -eq 0 ]; then
-            success "$item_name сохранён"
-            success=0
-          else
-            error "Ошибка при сохранении $item_name"
-          fi
-          items="$items $item_name"
-          statuses="$statuses $success"
-        fi
       fi
-
+      if [ -n "$SELECTED_DRIVE" ]; then
+        log "Бэкап $item_name..."
+        local folder_path="$SELECTED_DRIVE/$date"
+        local backup_file="$folder_path/$item_name.txt"
+        wg show all private-key >"$backup_file"
+        if [ $? -eq 0 ]; then
+          success "$item_name сохранён"
+          success=0
+        else
+          error "Ошибка при сохранении $item_name"
+        fi
+        items="$items $item_name"
+        statuses="$statuses $success"
+      fi
     }
 
     backup_firmware() {
