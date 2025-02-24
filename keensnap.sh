@@ -149,8 +149,8 @@ EOF
 
   SCHEDULE_SELECTED=$(echo "$schedules" | tr ' ' '\n' | grep "^$choice:" | cut -d ':' -f2)
   if [ -z "$SCHEDULE_SELECTED" ]; then
-    echo "Неверный выбор!"
-    return 1
+    print_message "Неверный выбор" "$RED"
+    exit_function
   fi
 
   return 0
@@ -292,6 +292,7 @@ identify_external_drive() {
   index=1
   media_found=0
   media_output=$(ndmc -c show media)
+  current_manufacturer=""
 
   if [ -z "$media_output" ]; then
     print_message "Не удалось получить список накопителей" "$RED"
@@ -299,25 +300,44 @@ identify_external_drive() {
   fi
 
   while IFS= read -r line; do
-    if echo "$line" | grep -q "name: Media"; then
+    case "$line" in
+    *"name: Media"*)
       media_found=1
       echo "0. Встроенное хранилище (может не хватить места) $message2"
-    elif [ "$media_found" = "1" ]; then
-      if echo "$line" | grep -q "uuid:"; then
-        uuid=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
-      elif echo "$line" | grep -q "label:"; then
-        label=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
-        if [ -n "$uuid" ] && [ -n "$label" ]; then
-          echo "$index. $label"
-          labels="$labels \"$label\""
-          uuids="$uuids $uuid"
-          index=$((index + 1))
-        fi
+      current_manufacturer=""
+      ;;
+    *"manufacturer:"*)
+      if [ "$media_found" = "1" ]; then
+        current_manufacturer=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
       fi
-    fi
+      ;;
+    *"uuid:"*)
+      if [ "$media_found" = "1" ]; then
+        uuid=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
+      fi
+      ;;
+    *"label:"*)
+      if [ "$media_found" = "1" ] && [ -n "$uuid" ]; then
+        label=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
+        if [ -n "$label" ]; then
+          display_name="$label"
+        elif [ -n "$current_manufacturer" ]; then
+          display_name="$current_manufacturer"
+        else
+          display_name="Unknown"
+        fi
+        echo "$index. $display_name"
+        labels="$labels \"$display_name\""
+        uuids="$uuids $uuid"
+        index=$((index + 1))
+        uuid=""
+      fi
+      ;;
+    esac
   done <<EOF
 $media_output
 EOF
+
   echo ""
   read -p "$message " choice
   choice=$(echo "$choice" | tr -d ' \n\r')
@@ -327,9 +347,8 @@ EOF
   else
     selected_drive=$(echo "$uuids" | awk -v choice="$choice" '{split($0, a, " "); print a[choice]}')
     if [ -z "$selected_drive" ]; then
-      print_message "Недопустимый выбор" "$RED"
-      sleep 2
-      main_menu
+      print_message "Неверный выбор" "$RED"
+      exit_function
     fi
     selected_drive="/tmp/mnt/$selected_drive"
   fi

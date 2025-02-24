@@ -38,9 +38,10 @@ start)
       DEVICE=$(echo "$version_output" | grep "device" | awk -F": " '{print $2}')
       FW_VERSION=$(echo "$version_output" | grep "release" | awk -F": " '{print $2}')
       DEVICE_ID=$(echo "$version_output" | grep "hw_id" | awk -F": " '{print $2}')
-      if [ -z "$DEVICE" ] || [ -z "$FW_VERSION" ] || [ -z "$DEVICE_ID" ]; then
-        log "Ошибка при получении информации о устройстве - $DEVICE $FW_VERSION $DEVICE_ID"
-      fi
+
+      [ -z "$DEVICE" ] && DEVICE="unknown"
+      [ -z "$FW_VERSION" ] && FW_VERSION="unknown"
+      [ -z "$DEVICE_ID" ] && DEVICE_ID="unknown"
     }
 
     get_architecture() {
