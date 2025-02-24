@@ -21,7 +21,7 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 # Настройка
 1. Иметь настроенное расписание, созданное через веб-интерфейс [KeeneticOS](https://docs.keenetic.com/eaeu/giga/kn-1010/ru/22348-disabling-all-leds-on-schedule.html). Вешать его на что-либо необязательно.
 2. После запуска скрипта выбрать `Настроить конфигурацию`. В предложенном списке выбрать нужное расписание для частоты бэкапа. При первом запуске создастся файл конфигурации, в дальнейшем в нём записываются все настройки. Также скрипт спросит, где сохранять архив с копией устройства.
-3. Перейти в `Параметры бэкапа` и выбрать нужные параметры. Для `WG_PRIVATE_KEY` необходим пакет `wireguard-tools`, установите самостоятельно по необходимости.
+3. Перейти в `Параметры бэкапа` и выбрать нужные параметры.
 4. В разделе `Подключить Telegram` можно указать данные, необходимые для отправки архива.
 
 ## Подключение Telegram
@@ -33,4 +33,4 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 
 3. Вставить в скрипт
 
-   <img src="https://github.com/user-attachments/assets/88d6582b-1057-41f1-98ca-d5180586a787" alt="" width="700">
+   <img src="https://github.com/user-attachments/assets/632f2c6c-0b53-4502-8c6e-0e4c44cfe65b" alt="" width="700">
