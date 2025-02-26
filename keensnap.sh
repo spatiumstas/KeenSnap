@@ -140,17 +140,17 @@ EOF
 
   if [ -z "$schedules" ]; then
     print_message "Расписания не найдены" "$RED"
-    return 1
-  fi
+  else
 
-  echo ""
-  read -p "$message " choice
-  choice=$(echo "$choice" | tr -d ' \n\r')
+    echo ""
+    read -p "$message " choice
+    choice=$(echo "$choice" | tr -d ' \n\r')
 
-  SCHEDULE_SELECTED=$(echo "$schedules" | tr ' ' '\n' | grep "^$choice:" | cut -d ':' -f2)
-  if [ -z "$SCHEDULE_SELECTED" ]; then
-    print_message "Неверный выбор" "$RED"
-    exit_function
+    SCHEDULE_SELECTED=$(echo "$schedules" | tr ' ' '\n' | grep "^$choice:" | cut -d ':' -f2)
+    if [ -z "$SCHEDULE_SELECTED" ]; then
+      print_message "Неверный выбор" "$RED"
+      exit_function
+    fi
   fi
 
   return 0
@@ -284,9 +284,9 @@ manual_backup() {
 }
 
 identify_external_drive() {
-  message=$1
-  message2=$2
-  special_message=$3
+  local message=$1
+  local message2=$2
+  local special_message=$3
   labels=""
   uuids=""
   index=1
@@ -299,11 +299,12 @@ identify_external_drive() {
     return 1
   fi
 
+  echo "0. Встроенное хранилище (может не хватить места) $message2"
+
   while IFS= read -r line; do
     case "$line" in
     *"name: Media"*)
       media_found=1
-      echo "0. Встроенное хранилище (может не хватить места) $message2"
       current_manufacturer=""
       ;;
     *"manufacturer:"*)
@@ -314,11 +315,32 @@ identify_external_drive() {
     *"uuid:"*)
       if [ "$media_found" = "1" ]; then
         uuid=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
-      fi
-      ;;
-    *"label:"*)
-      if [ "$media_found" = "1" ] && [ -n "$uuid" ]; then
-        label=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
+        read -r label_line
+        read -r fstype_line
+        read -r state_line
+        read -r total_line
+        read -r free_line
+
+        label=$(echo "$label_line" | cut -d ':' -f2- | sed 's/^ *//g')
+        fstype=$(echo "$fstype_line" | cut -d ':' -f2- | sed 's/^ *//g')
+        free_bytes=$(echo "$free_line" | cut -d ':' -f2- | sed 's/^ *//g')
+
+        if [ "$fstype" = "swap" ]; then
+          uuid=""
+          continue
+        fi
+
+        free_mb=$((free_bytes / 1024 / 1024))
+        free_gb=$((free_mb / 1024))
+
+        if [ "$free_mb" -lt 1024 ]; then
+          free_display="$free_mb"
+          unit="MB"
+        else
+          free_display="$free_gb"
+          unit="GB"
+        fi
+
         if [ -n "$label" ]; then
           display_name="$label"
         elif [ -n "$current_manufacturer" ]; then
@@ -326,7 +348,8 @@ identify_external_drive() {
         else
           display_name="Unknown"
         fi
-        echo "$index. $display_name"
+
+        echo "$index. $display_name ($fstype, ${free_display}${unit})"
         labels="$labels \"$display_name\""
         uuids="$uuids $uuid"
         index=$((index + 1))
