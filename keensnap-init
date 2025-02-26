@@ -8,353 +8,352 @@ REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/rele
 date="backup$(date +%Y-%m-%d_%H-%M)"
 items=""
 statuses=""
+(
+  case "$1" in
+  start)
+    if [ -n "$2" ]; then
+      SCHEDULE="$2"
+      echo "Запуск KeenSnap (расписание: $SCHEDULE)"
 
-case "$1" in
-start)
-  if [ -n "$2" ]; then
-    SCHEDULE="$2"
-    echo "Запуск KeenSnap (расписание: $SCHEDULE)"
+      log() {
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
+      }
 
-    log() {
-      local message="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
-      echo "$message" >>"$LOG_FILE"
-      echo "$message"
-    }
+      error() {
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
+      }
 
-    error() {
-      local message="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
-      echo "$message" >>"$LOG_FILE"
-      echo "$message"
-    }
+      success() {
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
+      }
 
-    success() {
-      local message="$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
-      echo "$message" >>"$LOG_FILE"
-      echo "$message"
-    }
+      get_device_info() {
+        version_output=$(ndmc -c show version 2>/dev/null)
+        DEVICE=$(echo "$version_output" | grep "device" | awk -F": " '{print $2}')
+        FW_VERSION=$(echo "$version_output" | grep "release" | awk -F": " '{print $2}')
+        DEVICE_ID=$(echo "$version_output" | grep "hw_id" | awk -F": " '{print $2}')
 
-    get_device_info() {
-      version_output=$(ndmc -c show version 2>/dev/null)
-      DEVICE=$(echo "$version_output" | grep "device" | awk -F": " '{print $2}')
-      FW_VERSION=$(echo "$version_output" | grep "release" | awk -F": " '{print $2}')
-      DEVICE_ID=$(echo "$version_output" | grep "hw_id" | awk -F": " '{print $2}')
+        [ -z "$DEVICE" ] && DEVICE="unknown"
+        [ -z "$FW_VERSION" ] && FW_VERSION="unknown"
+        [ -z "$DEVICE_ID" ] && DEVICE_ID="unknown"
+      }
 
-      [ -z "$DEVICE" ] && DEVICE="unknown"
-      [ -z "$FW_VERSION" ] && FW_VERSION="unknown"
-      [ -z "$DEVICE_ID" ] && DEVICE_ID="unknown"
-    }
+      get_architecture() {
+        arch=$(opkg print-architecture | grep -oE 'mips-3|mipsel-3|aarch64-3|armv7' | head -n 1)
 
-    get_architecture() {
-      arch=$(opkg print-architecture | grep -oE 'mips-3|mipsel-3|aarch64-3|armv7' | head -n 1)
+        case "$arch" in
+        "mips-3") echo "mips" ;;
+        "mipsel-3") echo "mipsel" ;;
+        "aarch64-3") echo "aarch64" ;;
+        "armv7") echo "armv7" ;;
+        *) echo "unknown_arch" ;;
+        esac
+      }
 
-      case "$arch" in
-      "mips-3") echo "mips" ;;
-      "mipsel-3") echo "mipsel" ;;
-      "aarch64-3") echo "aarch64" ;;
-      "armv7") echo "armv7" ;;
-      *) echo "unknown_arch" ;;
-      esac
-    }
-
-    get_coreutils-split() {
-      if ! opkg list-installed | grep -q "^coreutils-split"; then
-        opkg update
-        opkg install coreutils-split
-      fi
-    }
-
-    clean_log() {
-      local log_file="$1"
-      local max_size=524288
-
-      if [ ! -f $log_file ]; then
-        touch $log_file
-      fi
-
-      local current_size=$(wc -c <"$log_file")
-      if [ $current_size -gt $max_size ]; then
-        sed -i '1,100d' "$log_file"
-        log "Лог-файл был обрезан на первые 100 строк."
-      fi
-    }
-
-    send_to_telegram() {
-      if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-        log "Токен бота или ID чата не заданы. Отправка в Telegram пропущена."
-        return 1
-      fi
-
-      local chat_id="${CHAT_ID%%_*}"
-      local topic_id="${CHAT_ID#*_}"
-      if [ "$chat_id" = "$CHAT_ID" ]; then
-        topic_id=""
-      fi
-
-      local caption="$1"
-      local file_path="$2"
-      local escaped_caption
-      escaped_caption=$(echo "$caption" | sed 's/[][*_`]/\\&/g')
-
-      local response
-      local response_body
-
-      if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
-        local payload
-        if [ -n "$topic_id" ]; then
-          payload=$(printf '{"chat_id":%s,"message_thread_id":%s,"parse_mode":"Markdown","text":"%s"}' \
-            "$chat_id" "$topic_id" "$escaped_caption")
-        else
-          payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' \
-            "$chat_id" "$escaped_caption")
+      get_coreutils-split() {
+        if ! opkg list-installed | grep -q "^coreutils-split"; then
+          opkg update
+          opkg install coreutils-split
         fi
-        response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-          -H "Content-Type: application/json" \
-          -d "$payload")
-        response_body=$(cat /tmp/telegram_response)
-        rm -f /tmp/telegram_response
-      else
-        local max_size=$((49 * 1024 * 1024))
-        local new_archive="${file_path%.tar.gz}.tar"
-        tar -cf "$new_archive" -C "$(dirname "$file_path")" "$(basename "$file_path")"
+      }
 
-        local archive_size
-        archive_size=$(wc -c <"$new_archive")
+      clean_log() {
+        local log_file="$1"
+        local max_size=524288
 
-        rm -f "$file_path"
+        if [ ! -f $log_file ]; then
+          touch $log_file
+        fi
 
-        if [ "$archive_size" -le "$max_size" ]; then
-          log "Отправка архива: $new_archive"
-          response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
-            -F "document=@$new_archive" \
-            -F "caption=$escaped_caption" \
-            -F "parse_mode=Markdown" \
-            ${topic_id:+-F "message_thread_id=$topic_id"} \
-            "https://api.telegram.org/bot$BOT_TOKEN/sendDocument")
+        local current_size=$(wc -c <"$log_file")
+        if [ $current_size -gt $max_size ]; then
+          sed -i '1,100d' "$log_file"
+          log "Лог-файл был обрезан на первые 100 строк."
+        fi
+      }
+
+      send_to_telegram() {
+        if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+          log "Токен бота или ID чата не заданы. Отправка в Telegram пропущена."
+          return 1
+        fi
+
+        local chat_id="${CHAT_ID%%_*}"
+        local topic_id="${CHAT_ID#*_}"
+        if [ "$chat_id" = "$CHAT_ID" ]; then
+          topic_id=""
+        fi
+
+        local caption="$1"
+        local file_path="$2"
+        local escaped_caption
+        escaped_caption=$(echo "$caption" | sed 's/[][*_`]/\\&/g')
+
+        local response
+        local response_body
+
+        if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
+          local payload
+          if [ -n "$topic_id" ]; then
+            payload=$(printf '{"chat_id":%s,"message_thread_id":%s,"parse_mode":"Markdown","text":"%s"}' \
+              "$chat_id" "$topic_id" "$escaped_caption")
+          else
+            payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' \
+              "$chat_id" "$escaped_caption")
+          fi
+          response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$payload")
           response_body=$(cat /tmp/telegram_response)
-          rm -f /tmp/telegram_response "$new_archive"
+          rm -f /tmp/telegram_response
         else
-          get_coreutils-split
-          log "Архив превышает 49МБ, разбиваю на части..."
-          split -b "$max_size" -d --numeric-suffixes=001 --suffix-length=3 "$new_archive" "${new_archive}."
+          local max_size=$((49 * 1024 * 1024))
+          local new_archive="${file_path%.tar.gz}.tar"
+          tar -cf "$new_archive" -C "$(dirname "$file_path")" "$(basename "$file_path")"
 
-          local part_number=1
-          for part_file in "${new_archive}."*; do
-            local part_caption="[[Часть $part_number]] $escaped_caption"
-            log "Отправка части: $part_file"
+          local archive_size
+          archive_size=$(wc -c <"$new_archive")
+
+          rm -f "$file_path"
+
+          if [ "$archive_size" -le "$max_size" ]; then
+            log "Отправка архива: $new_archive"
             response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
-              -F "document=@$part_file" \
-              -F "caption=$part_caption" \
+              -F "document=@$new_archive" \
+              -F "caption=$escaped_caption" \
               -F "parse_mode=Markdown" \
               ${topic_id:+-F "message_thread_id=$topic_id"} \
               "https://api.telegram.org/bot$BOT_TOKEN/sendDocument")
             response_body=$(cat /tmp/telegram_response)
-            rm -f /tmp/telegram_response "$part_file"
+            rm -f /tmp/telegram_response "$new_archive"
+          else
+            get_coreutils-split
+            log "Архив превышает 49МБ, разбиваю на части..."
+            split -b "$max_size" -d --numeric-suffixes=001 --suffix-length=3 "$new_archive" "${new_archive}."
 
-            if [ "$response" -ne 200 ]; then
-              error "Ошибка отправки части $part_file (HTTP $response): $response_body"
-              rm -f "$new_archive"
-              return 1
-            fi
-            part_number=$((part_number + 1))
-          done
-          rm -f "$new_archive"
+            local part_number=1
+            for part_file in "${new_archive}."*; do
+              local part_caption="[[Часть $part_number]] $escaped_caption"
+              log "Отправка части: $part_file"
+              response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
+                -F "document=@$part_file" \
+                -F "caption=$part_caption" \
+                -F "parse_mode=Markdown" \
+                ${topic_id:+-F "message_thread_id=$topic_id"} \
+                "https://api.telegram.org/bot$BOT_TOKEN/sendDocument")
+              response_body=$(cat /tmp/telegram_response)
+              rm -f /tmp/telegram_response "$part_file"
+
+              if [ "$response" -ne 200 ]; then
+                error "Ошибка отправки части $part_file (HTTP $response): $response_body"
+                rm -f "$new_archive"
+                return 1
+              fi
+              part_number=$((part_number + 1))
+            done
+            rm -f "$new_archive"
+          fi
         fi
-      fi
 
-      if [ "$response" -eq 200 ]; then
-        success "Сообщение успешно отправлено в Telegram"
-        return 0
-      else
-        error "Ошибка отправки в Telegram (HTTP $response). Ответ сервера: $response_body"
-        return 1
-      fi
-    }
-
-    backup_startup_config() {
-      local success=1
-      local item_name="startup-config"
-
-      if [ -n "$SELECTED_DRIVE" ]; then
-
-        log "Бэкап $item_name..."
-        local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
-        local folder_path="$device_uuid:/$date"
-        local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
-        ndmc -c "copy $item_name $backup_file" 2>&1
-        if [ $? -eq 0 ]; then
-          success "$item_name сохранён"
-          success=0
+        if [ "$response" -eq 200 ]; then
+          success "Сообщение успешно отправлено в Telegram"
+          return 0
         else
-          error "Ошибка при сохранении $item_name"
-
+          error "Ошибка отправки в Telegram (HTTP $response). Ответ сервера: $response_body"
+          return 1
         fi
-      fi
-      items="$items $item_name"
-      statuses="$statuses $success"
-    }
+      }
 
-    backup_entware() {
-      local success=1
-      local item_name="Entware"
-      if [ -n "$SELECTED_DRIVE" ]; then
-        log "Бэкап $item_name..."
-        local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
-        tar cvzf "$backup_file" -C /opt . >/dev/null 2>&1
-        if [ $? -eq 0 ]; then
-          success "$item_name сохранён"
-          success=0
-        else
-          error "Ошибка при сохранении $item_name"
-        fi
-      fi
-      items="$items $item_name"
-      statuses="$statuses $success"
-    }
+      backup_startup_config() {
+        local success=1
+        local item_name="startup-config"
 
-    backup_wg_private_key() {
-      local success=1
-      local item_name="WireGuard-Private-Key"
-      if ! opkg list-installed | grep -q "^wireguard-tools"; then
-        opkg update
-        opkg install wireguard-tools
-      fi
-      if [ -n "$SELECTED_DRIVE" ]; then
-        log "Бэкап $item_name..."
-        local folder_path="$SELECTED_DRIVE/$date"
-        local backup_file="$folder_path/$item_name.txt"
-        wg show all private-key >"$backup_file"
-        if [ $? -eq 0 ]; then
-          success "$item_name сохранён"
-          success=0
-        else
-          error "Ошибка при сохранении $item_name"
+        if [ -n "$SELECTED_DRIVE" ]; then
+
+          log "Бэкап $item_name..."
+          local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
+          local folder_path="$device_uuid:/$date"
+          local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
+          ndmc -c "copy $item_name $backup_file"
+          if [ $? -eq 0 ]; then
+            success "$item_name сохранён"
+            success=0
+          else
+            error "Ошибка при сохранении $item_name"
+
+          fi
         fi
         items="$items $item_name"
         statuses="$statuses $success"
-      fi
-    }
+      }
 
-    backup_firmware() {
-      local success=1
-      local item_name="firmware"
-      if [ -n "$SELECTED_DRIVE" ]; then
-        log "Бэкап $item_name..."
-        local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
-        local folder_path="$device_uuid:/$date"
-        local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
-        ndmc -c "copy flash:/$item_name $backup_file" 2>&1
-        if [ $? -eq 0 ]; then
-          success "$item_name сохранена"
-          success=0
-        else
-          error "Ошибка при сохранении $item_name"
+      backup_entware() {
+        local success=1
+        local item_name="Entware"
+
+        if [ -n "$SELECTED_DRIVE" ]; then
+          log "Бэкап $item_name..."
+          local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
+          tar_output=$(tar cvzf "$backup_file" -C /opt . 2>&1)
+
+          if echo "$tar_output" | grep -iq "error\|no space left on device"; then
+            log "Ошибка при сохранении $item_name:" "$RED"
+            log "$(echo "$tar_output" | tail -n 2)"
+          else
+            success "$item_name сохранён"
+            success=0
+          fi
         fi
-      fi
-      items="$items $item_name"
-      statuses="$statuses $success"
-    }
 
-    create_backup_and_send_report() {
-      local items=""
-      local statuses=""
-      mkdir -p "$SELECTED_DRIVE/$date"
-      local backup_performed=0
+        items="$items $item_name"
+        statuses="$statuses $success"
+      }
 
-      if [ "$BACKUP_ENTWARE" = "true" ]; then
-        backup_entware
-        backup_performed=1
-      fi
+      backup_wg_private_key() {
+        local success=1
+        local item_name="WireGuard-Private-Key"
+        if ! opkg list-installed | grep -q "^wireguard-tools"; then
+          opkg update
+          opkg install wireguard-tools
+        fi
+        if [ -n "$SELECTED_DRIVE" ]; then
+          log "Бэкап $item_name..."
+          local folder_path="$SELECTED_DRIVE/$date"
+          local backup_file="$folder_path/$item_name.txt"
+          wg show all private-key >"$backup_file"
+          if [ $? -eq 0 ]; then
+            success "$item_name сохранён"
+            success=0
+          else
+            error "Ошибка при сохранении $item_name"
+          fi
+          items="$items $item_name"
+          statuses="$statuses $success"
+        fi
+      }
 
-      if [ "$BACKUP_STARTUP_CONFIG" = "true" ]; then
-        backup_startup_config
-        backup_performed=1
-      fi
+      backup_firmware() {
+        local success=1
+        local item_name="firmware"
+        if [ -n "$SELECTED_DRIVE" ]; then
+          log "Бэкап $item_name..."
+          local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
+          local folder_path="$device_uuid:/$date"
+          local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
+          ndmc -c "copy flash:/$item_name $backup_file"
+          if [ $? -eq 0 ]; then
+            success "$item_name сохранена"
+            success=0
+          else
+            error "Ошибка при сохранении $item_name"
+          fi
+        fi
+        items="$items $item_name"
+        statuses="$statuses $success"
+      }
 
-      if [ "$BACKUP_FIRMWARE" = "true" ]; then
-        backup_firmware
-        backup_performed=1
-      fi
+      create_backup_and_send_report() {
+        local items=""
+        local statuses=""
+        mkdir -p "$SELECTED_DRIVE/$date"
+        local backup_performed=0
 
-      if [ "$BACKUP_WG_PRIVATE_KEY" = "true" ]; then
-        backup_wg_private_key
-        backup_performed=1
-      fi
+        if [ "$BACKUP_ENTWARE" = "true" ]; then
+          backup_entware
+          backup_performed=1
+        fi
 
-      if [ "$backup_performed" -eq 0 ]; then
-        log "Ни один из вариантов бэкапа не выбран"
-        return 1
-      fi
+        if [ "$BACKUP_STARTUP_CONFIG" = "true" ]; then
+          backup_startup_config
+          backup_performed=1
+        fi
 
-      local archive_path
-      if [ -n "$SELECTED_DRIVE" ] && [ -d "$SELECTED_DRIVE/$date" ]; then
-        cp "$LOG_FILE" "$SELECTED_DRIVE/$date/backup_log.txt"
-        archive_path="$SELECTED_DRIVE/${DEVICE_ID}_$date.tar.gz"
-        log "Создание архива..."
-        tar -czf "$archive_path" -C "$SELECTED_DRIVE" "$date"
-        if [ $? -ne 0 ]; then
-          error "Ошибка при создании архива"
-          send_to_telegram "Ошибка при создании архива" "$SELECTED_DRIVE/$date/backup_log.txt"
-          rm -rf "$archive_path"
+        if [ "$BACKUP_FIRMWARE" = "true" ]; then
+          backup_firmware
+          backup_performed=1
+        fi
+
+        if [ "$BACKUP_WG_PRIVATE_KEY" = "true" ]; then
+          backup_wg_private_key
+          backup_performed=1
+        fi
+
+        if [ "$backup_performed" -eq 0 ]; then
+          log "Ни один из вариантов бэкапа не выбран"
           return 1
         fi
-        success "Архив создан"
-      else
-        error "Невозможно создать архив: папка с бэкапами не найдена."
-        return 1
-      fi
 
-      local report="Бэкап $DEVICE ($DEVICE_ID) выполнен:"$'\n\n'
-      local i=1
-      for item in $items; do
-        local status_value=$(echo $statuses | cut -d' ' -f$i)
-        if [ "$status_value" -eq 0 ]; then
-          report="$report✅ $item"$'\n'
+        local archive_path
+        if [ -n "$SELECTED_DRIVE" ] && [ -d "$SELECTED_DRIVE/$date" ]; then
+          cp "$LOG_FILE" "$SELECTED_DRIVE/$date/backup_log.txt"
+          archive_path="$SELECTED_DRIVE/${DEVICE_ID}_$date.tar.gz"
+          log "Создание архива..."
+          tar -czf "$archive_path" -C "$SELECTED_DRIVE" "$date"
+          if [ $? -ne 0 ]; then
+            error "Ошибка при создании архива"
+            send_to_telegram "Ошибка при создании архива" "$SELECTED_DRIVE/$date/backup_log.txt"
+            rm -rf "$archive_path"
+            return 1
+          fi
+          success "Архив создан"
         else
-          report="$report❌ $item"$'\n'
+          error "Невозможно создать архив: папка с бэкапами не найдена."
+          return 1
         fi
-        i=$((i + 1))
-      done
 
-      if [ "$SEND_BACKUP_TG" = "true" ]; then
-        send_to_telegram "$report" "$archive_path"
-      fi
+        local report="Бэкап $DEVICE ($DEVICE_ID) выполнен:"$'\n\n'
+        local i=1
+        for item in $items; do
+          local status_value=$(echo $statuses | cut -d' ' -f$i)
+          if [ "$status_value" -eq 0 ]; then
+            report="$report✅ $item"$'\n'
+          else
+            report="$report❌ $item"$'\n'
+          fi
+          i=$((i + 1))
+        done
 
-      if [ "$DELETE_ARCHIVE_AFTER_BACKUP" = "true" ]; then
-        rm -rf "$archive_path"
-        log "Архив удалён"
-      else
-        log "Архив сохранён: $archive_path"
-      fi
-    }
+        if [ "$SEND_BACKUP_TG" = "true" ]; then
+          send_to_telegram "$report" "$archive_path"
+        fi
 
-    delete_temp_folder() {
-      rm -rf "$SELECTED_DRIVE/$date"
-    }
+        if [ "$DELETE_ARCHIVE_AFTER_BACKUP" = "true" ]; then
+          rm -rf "$archive_path"
+          log "Архив удалён"
+        else
+          log "Архив сохранён: $archive_path"
+        fi
+      }
 
-    main() {
-      clean_log "$LOG_FILE"
-      get_device_info
-      log "Запуск скрипта для расписания $SCHEDULE"
-      create_backup_and_send_report
-      delete_temp_folder
-      log "Скрипт завершил работу"
-    }
+      delete_temp_folder() {
+        rm -rf "$SELECTED_DRIVE/$date"
+      }
 
-    check_update() {
-      local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + $3}')
-      local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + ($3 == "" ? 0 : $3)}')
+      main() {
+        clean_log "$LOG_FILE"
+        get_device_info
+        log "Запуск скрипта для расписания $SCHEDULE"
+        create_backup_and_send_report
+        delete_temp_folder
+        log "Скрипт завершил работу"
+      }
 
-      if [ "$remote_num" -gt "$local_num" ]; then
-        log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
-        keensnap "script_update"
-      fi
-    }
+      check_update() {
+        local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + $3}')
+        local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + ($3 == "" ? 0 : $3)}')
 
-    main "$SCHEDULE"
-    check_update
-  fi
-  ;;
-*)
-  exit 1
-  ;;
-esac
+        if [ "$remote_num" -gt "$local_num" ]; then
+          log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
+          keensnap "script_update"
+        fi
+      }
+
+      main "$SCHEDULE"
+      check_update
+    fi
+    ;;
+  *)
+    exit 1
+    ;;
+  esac
+) 2>&1 | tee -a "$LOG_FILE"
