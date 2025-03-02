@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 
-SCRIPT_VERSION="v1.0.2"
+SCRIPT_VERSION="v1.0.3"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -60,12 +60,12 @@ statuses=""
       clean_log() {
         local log_file="$1"
         local max_size=524288
+        local current_size=$(wc -c <"$log_file")
 
         if [ ! -f $log_file ]; then
           touch $log_file
         fi
 
-        local current_size=$(wc -c <"$log_file")
         if [ $current_size -gt $max_size ]; then
           sed -i '1,100d' "$log_file"
           log "Лог-файл был обрезан на первые 100 строк."
@@ -194,11 +194,12 @@ statuses=""
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
           local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
-          tar_output=$(tar cvzf "$backup_file" -C /opt . 2>&1)
+          tar_output=$(tar cvzf "$backup_file" --ignore-failed-read -C /opt . 2>&1)
+          log_operation=$(echo "$tar_output" | tail -n 2)
 
-          if echo "$tar_output" | grep -iq "error\|no space left on device"; then
+          if echo "$log_operation" | grep -iq "error\|no space left on device"; then
             log "Ошибка при сохранении $item_name:" "$RED"
-            log "$(echo "$tar_output" | tail -n 2)"
+            echo "$log_operation"
           else
             success "$item_name сохранён"
             success=0
