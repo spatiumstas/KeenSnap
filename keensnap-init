@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 
-SCRIPT_VERSION="v1.0.3"
+SCRIPT_VERSION="v1.0.3.1"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -194,7 +194,7 @@ statuses=""
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
           local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
-          tar_output=$(tar cvzf "$backup_file" --ignore-failed-read -C /opt . 2>&1)
+          tar_output=$(tar cvzf "$backup_file" -C /opt . 2>&1)
           log_operation=$(echo "$tar_output" | tail -n 2)
 
           if echo "$log_operation" | grep -iq "error\|no space left on device"; then

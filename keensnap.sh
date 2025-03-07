@@ -406,11 +406,10 @@ script_update() {
     ln -sf $KEENSNAP_DIR/$SCRIPT $OPT_DIR/bin/$REPO
     if [ "$BRANCH" = "dev" ]; then
       print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
-      sleep 1
     else
       print_message "Скрипт успешно обновлён" "$GREEN"
-      sleep 1
     fi
+    sleep 1
     $KEENSNAP_DIR/$SCRIPT
     update_config 1
     main_menu
