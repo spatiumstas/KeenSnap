@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 
-SCRIPT_VERSION="v1.0.3.1"
+SCRIPT_VERSION="v1.0.4"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -340,9 +340,8 @@ statuses=""
       }
 
       check_update() {
-        local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + $3}')
-        local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + ($3 == "" ? 0 : $3)}')
-
+        local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*1000000 + $2*10000 + $3*100 + ($4 == "" ? 0 : $4)}')
+        local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*1000000 + $2*10000 + $3*100 + ($4 == "" ? 0 : $4)}')
         if [ "$remote_num" -gt "$local_num" ]; then
           log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
           keensnap "script_update"
