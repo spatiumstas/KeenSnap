@@ -402,8 +402,10 @@ script_update() {
   if [ -f "$TMP_DIR/$SCRIPT" ]; then
     mv "$TMP_DIR/$SCRIPT" "$KEENSNAP_DIR/$SCRIPT"
     chmod +x $KEENSNAP_DIR/$SCRIPT
-    cd $OPT_DIR/bin
-    ln -sf $KEENSNAP_DIR/$SCRIPT $OPT_DIR/bin/$REPO
+    if [ ! -f "$OPT_DIR/bin/$REPO" ]; then
+      cd $OPT_DIR/bin
+      ln -s "$KEENSNAP_DIR/$SCRIPT" "$OPT_DIR/bin/$REPO"
+    fi
     if [ "$BRANCH" = "dev" ]; then
       print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
     else

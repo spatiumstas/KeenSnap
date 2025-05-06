@@ -1,8 +1,8 @@
 #!/bin/sh
 
 source /opt/root/KeenSnap/config.sh
-
-SCRIPT_VERSION="v1.0.4"
+export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
+SCRIPT_VERSION="v1.0.5"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -190,11 +190,14 @@ statuses=""
       backup_entware() {
         local success=1
         local item_name="Entware"
-
+        if ! opkg list-installed | grep -q "^tar"; then
+          opkg update
+          opkg install tar
+        fi
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
           local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
-          tar_output=$(tar cvzf "$backup_file" -C /opt . 2>&1)
+          tar_output=$(tar cvzf "$backup_file" -C /opt --exclude="$backup_file" . 2>&1)
           log_operation=$(echo "$tar_output" | tail -n 2)
 
           if echo "$log_operation" | grep -iq "error\|no space left on device"; then
@@ -334,6 +337,14 @@ statuses=""
         clean_log "$LOG_FILE"
         get_device_info
         log "Запуск скрипта для расписания $SCHEDULE"
+        local drive_uuid=$(basename "$SELECTED_DRIVE")
+        if [ -z "$SELECTED_DRIVE" ] || [ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $drive_uuid"; then
+          drive_name=$(basename "$SELECTED_DRIVE")
+          error "Выбранный накопитель $drive_name не подключён"
+          send_to_telegram "❌ Выбранный накопитель $drive_name не подключён" ""
+          return 1
+        fi
+
         create_backup_and_send_report
         delete_temp_folder
         log "Скрипт завершил работу"
