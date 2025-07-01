@@ -60,12 +60,12 @@ statuses=""
       clean_log() {
         local log_file="$1"
         local max_size=524288
-        local current_size=$(wc -c <"$log_file")
 
         if [ ! -f $log_file ]; then
           touch $log_file
         fi
 
+        local current_size=$(wc -c <"$log_file")
         if [ $current_size -gt $max_size ]; then
           sed -i '1,100d' "$log_file"
           log "Лог-файл был обрезан на первые 100 строк."
