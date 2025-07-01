@@ -50,10 +50,10 @@ statuses=""
         esac
       }
 
-      get_coreutils-split() {
-        if ! opkg list-installed | grep -q "^coreutils-split"; then
-          opkg update
-          opkg install coreutils-split
+      package_check() {
+        package="$1"
+        if ! opkg list-installed | grep -q "^$package"; then
+          opkg update && opkg install "$package"
         fi
       }
 
@@ -127,7 +127,7 @@ statuses=""
             response_body=$(cat /tmp/telegram_response)
             rm -f /tmp/telegram_response "$new_archive"
           else
-            get_coreutils-split
+            package_check "coreutils-split"
             log "Архив превышает 49МБ, разбиваю на части..."
             split -b "$max_size" -d --numeric-suffixes=001 --suffix-length=3 "$new_archive" "${new_archive}."
 
@@ -190,10 +190,7 @@ statuses=""
       backup_entware() {
         local success=1
         local item_name="Entware"
-        if ! opkg list-installed | grep -q "^tar"; then
-          opkg update
-          opkg install tar
-        fi
+        package_check "tar"
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
           local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
@@ -216,10 +213,7 @@ statuses=""
       backup_wg_private_key() {
         local success=1
         local item_name="WireGuard-Private-Key"
-        if ! opkg list-installed | grep -q "^wireguard-tools"; then
-          opkg update
-          opkg install wireguard-tools
-        fi
+        package_check "wireguard-tools"
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
           local folder_path="$SELECTED_DRIVE/$date"
