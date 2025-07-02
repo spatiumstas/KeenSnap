@@ -1,4 +1,4 @@
-LOG_FILE="/opt/root/KeenSnap/log.txt"
+LOG_FILE="/opt/var/log/keensnap.log"
 PATH_SNAPD="/opt/root/KeenSnap/keensnap-init"
 SCHEDULE_NAME=""
 SELECTED_DRIVE=""

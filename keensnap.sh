@@ -56,7 +56,7 @@ main_menu() {
     case "$choice" in
     1) setup_config ;;
     2) select_backup_options ;;
-    3) connect_telegram ;;
+    3) setup_telegram ;;
     4) manual_backup ;;
     77) remove_script ;;
     99) script_update "main" ;;
@@ -257,7 +257,7 @@ select_backup_options() {
   exit_function
 }
 
-connect_telegram() {
+setup_telegram() {
   check_config
   read -p "Введите токен бота Telegram: " BOT_TOKEN
   BOT_TOKEN=$(echo "$BOT_TOKEN" | sed 's/^[ \t]*//;s/[ \t]*$//')
@@ -412,9 +412,7 @@ script_update() {
       print_message "Скрипт успешно обновлён" "$GREEN"
     fi
     sleep 1
-    $KEENSNAP_DIR/$SCRIPT
-    update_config 1
-    main_menu
+    $KEENSNAP_DIR/$SCRIPT update_config
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
   fi
@@ -422,6 +420,9 @@ script_update() {
 
 if [ "$1" = "script_update" ]; then
   script_update "main"
+elif [ "$1" = "update_config" ]; then
+  update_config 1
+  main_menu
 else
   main_menu
 fi
