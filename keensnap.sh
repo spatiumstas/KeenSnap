@@ -90,7 +90,7 @@ create_schedule_init() {
 source /opt/root/KeenSnap/config.sh
 
 if [ "$1" = "start" ] && [ "$schedule" = "$SCHEDULE_NAME" ]; then
-  $PATH_SNAPD start "$schedule"
+  $PATH_SNAPD start "$schedule" &
 fi
 exit 0
 
