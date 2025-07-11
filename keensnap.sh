@@ -374,6 +374,34 @@ EOF
       exit_function
     fi
     selected_drive="/tmp/mnt/$selected_drive"
+
+    while true; do
+      echo ""
+      echo "Содержимое $selected_drive:"
+      folders_list=$(find "$selected_drive" -maxdepth 1 -type d 2>/dev/null | grep -v "^$selected_drive$" | grep -v '/\\.' | grep -vE '/[А-Яа-яЁё]' | sort)
+      set -- $folders_list
+      folder_count=$#
+      if [ $folder_count -eq 0 ]; then
+        printf "${RED}Директория пустая ${NC}\n"
+      else
+        i=1
+        for folder in "$@"; do
+          fname="${folder##*/}"
+          echo "$i. $fname"
+          i=$((i+1))
+        done
+      fi
+      read -p "Выберите папку, 0 — выбрать текущую, 00 — уровень назад: " folder_choice
+      if [ -z "$folder_choice" ] || [ "$folder_choice" = "0" ]; then
+        break
+      elif echo "$folder_choice" | grep -Eq '^[0-9]+$' && [ "$folder_choice" -ge 1 ] && [ "$folder_choice" -le "$folder_count" ]; then
+        eval "selected_drive=\"\${$folder_choice}\""
+      elif [ "$folder_choice" = "00" ] && [ "$selected_drive" != "/tmp/mnt/$uuid" ]; then
+        selected_drive=$(dirname "$selected_drive")
+      else
+        echo "Неверный выбор. Попробуйте снова."
+      fi
+    done
   fi
 }
 

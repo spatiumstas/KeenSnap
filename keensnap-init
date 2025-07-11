@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="v1.0.5"
+SCRIPT_VERSION="v1.0.6"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -114,8 +114,6 @@ statuses=""
           local archive_size
           archive_size=$(wc -c <"$new_archive")
 
-          rm -f "$file_path"
-
           if [ "$archive_size" -le "$max_size" ]; then
             log "Отправка архива: $new_archive"
             response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
@@ -164,23 +162,41 @@ statuses=""
         fi
       }
 
+      get_drive_path() {
+        local selected_drive="$1"
+        local date="$2"
+        local device_uuid=$(echo "$selected_drive" | awk -F'/' '{print $4}')
+        local subfolder=""
+        if [ "${selected_drive#*/tmp/mnt/$device_uuid/}" != "$selected_drive" ]; then
+          subfolder="${selected_drive#*/tmp/mnt/$device_uuid/}"
+          subfolder="${subfolder%/}"
+        fi
+        local rel_path=""
+        if [ -n "$subfolder" ]; then
+          rel_path="$subfolder/$date"
+        else
+          rel_path="$date"
+        fi
+        local ndmc_path="$device_uuid:$rel_path"
+        echo "$ndmc_path|$rel_path"
+      }
+
       backup_startup_config() {
         local success=1
         local item_name="startup-config"
 
         if [ -n "$SELECTED_DRIVE" ]; then
-
           log "Бэкап $item_name..."
-          local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
-          local folder_path="$device_uuid:/$date"
-          local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
+          local paths_out=$(get_drive_path "$SELECTED_DRIVE" "$date")
+          local ndmc_path="${paths_out%%|*}"
+          local rel_path="${paths_out##*|}"
+          local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
           ndmc -c "copy $item_name $backup_file"
           if [ $? -eq 0 ]; then
             success "$item_name сохранён"
             success=0
           else
             error "Ошибка при сохранении $item_name"
-
           fi
         fi
         items="$items $item_name"
@@ -235,9 +251,10 @@ statuses=""
         local item_name="firmware"
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
-          local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $NF}')
-          local folder_path="$device_uuid:/$date"
-          local backup_file="$folder_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
+          local paths_out=$(get_drive_path "$SELECTED_DRIVE" "$date")
+          local ndmc_path="${paths_out%%|*}"
+          local rel_path="${paths_out##*|}"
+          local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
           ndmc -c "copy flash:/$item_name $backup_file"
           if [ $? -eq 0 ]; then
             success "$item_name сохранена"
@@ -332,10 +349,13 @@ statuses=""
         get_device_info
         log "Запуск скрипта для расписания $SCHEDULE"
         local drive_uuid=$(basename "$SELECTED_DRIVE")
-        if [ -z "$SELECTED_DRIVE" ] || [ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $drive_uuid"; then
+        local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $4}')
+        if [ -z "$SELECTED_DRIVE" ] || ( [ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $device_uuid" ); then
           drive_name=$(basename "$SELECTED_DRIVE")
           error "Выбранный накопитель $drive_name не подключён"
-          send_to_telegram "❌ Выбранный накопитель $drive_name не подключён" ""
+          if [ "$SEND_BACKUP_TG" = "true" ]; then
+            send_to_telegram "❌ Выбранный накопитель $drive_name не подключён" ""
+          fi
           return 1
         fi
 
