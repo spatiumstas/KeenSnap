@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="v1.0.6"
+SCRIPT_VERSION="v1.0.7"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -130,8 +130,20 @@ statuses=""
             split -b "$max_size" -d --numeric-suffixes=001 --suffix-length=3 "$new_archive" "${new_archive}."
 
             local part_number=1
+            local total_parts=0
+
             for part_file in "${new_archive}."*; do
-              local part_caption="[[Часть $part_number]] $escaped_caption"
+              if [[ "$part_file" =~ \.[0-9]{3}$ ]]; then
+                total_parts=$((total_parts + 1))
+              fi
+            done
+
+            for part_file in "${new_archive}."*; do
+              if [[ ! "$part_file" =~ \.[0-9]{3}$ ]]; then
+                continue
+              fi
+
+              local part_caption="[[Часть $part_number из $total_parts]] $escaped_caption"
               log "Отправка части: $part_file"
               response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
                 -F "document=@$part_file" \
@@ -144,7 +156,6 @@ statuses=""
 
               if [ "$response" -ne 200 ]; then
                 error "Ошибка отправки части $part_file (HTTP $response): $response_body"
-                rm -f "$new_archive"
                 return 1
               fi
               part_number=$((part_number + 1))
@@ -350,7 +361,7 @@ statuses=""
         log "Запуск скрипта для расписания $SCHEDULE"
         local drive_uuid=$(basename "$SELECTED_DRIVE")
         local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $4}')
-        if [ -z "$SELECTED_DRIVE" ] || ( [ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $device_uuid" ); then
+        if [ -z "$SELECTED_DRIVE" ] || ([ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $device_uuid"); then
           drive_name=$(basename "$SELECTED_DRIVE")
           error "Выбранный накопитель $drive_name не подключён"
           if [ "$SEND_BACKUP_TG" = "true" ]; then
