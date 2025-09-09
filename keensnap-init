@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="v1.0.7"
+SCRIPT_VERSION="v1.0.8"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -176,19 +176,27 @@ statuses=""
       get_drive_path() {
         local selected_drive="$1"
         local date="$2"
-        local device_uuid=$(echo "$selected_drive" | awk -F'/' '{print $4}')
+        local device_uuid=""
         local subfolder=""
-        if [ "${selected_drive#*/tmp/mnt/$device_uuid/}" != "$selected_drive" ]; then
-          subfolder="${selected_drive#*/tmp/mnt/$device_uuid/}"
-          subfolder="${subfolder%/}"
-        fi
         local rel_path=""
-        if [ -n "$subfolder" ]; then
-          rel_path="$subfolder/$date"
-        else
+        local ndmc_path=""
+
+        if [ "$selected_drive" = "/storage" ]; then
           rel_path="$date"
+          ndmc_path="storage:$rel_path"
+        else
+          device_uuid=$(echo "$selected_drive" | awk -F'/' '{print $4}')
+          if [ "${selected_drive#*/tmp/mnt/$device_uuid/}" != "$selected_drive" ]; then
+            subfolder="${selected_drive#*/tmp/mnt/$device_uuid/}"
+            subfolder="${subfolder%/}"
+          fi
+          if [ -n "$subfolder" ]; then
+            rel_path="$subfolder/$date"
+          else
+            rel_path="$date"
+          fi
+          ndmc_path="$device_uuid:$rel_path"
         fi
-        local ndmc_path="$device_uuid:$rel_path"
         echo "$ndmc_path|$rel_path"
       }
 
@@ -327,7 +335,7 @@ statuses=""
           return 1
         fi
 
-        local report="Бэкап $DEVICE ($DEVICE_ID) выполнен:"$'\n\n'
+        local report="Бэкап $DEVICE ($DEVICE_ID):"$'\n\n'
         local i=1
         for item in $items; do
           local status_value=$(echo $statuses | cut -d' ' -f$i)
