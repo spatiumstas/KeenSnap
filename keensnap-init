@@ -16,15 +16,21 @@ statuses=""
       echo "Запуск KeenSnap (расписание: $SCHEDULE)"
 
       log() {
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
+        local message="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
+        echo "$message" | tee -a "$LOG_FILE"
+        logger -p notice -t sms2gram "$*"
       }
 
       error() {
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
+        local message="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
+        echo "$message" | tee -a "$LOG_FILE"
+        logger -p err -t sms2gram "$*"
       }
 
       success() {
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
+        local message="$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
+        echo "$message" | tee -a "$LOG_FILE"
+        logger -p notice -t sms2gram "$*"
       }
 
       get_device_info() {
@@ -39,13 +45,12 @@ statuses=""
       }
 
       get_architecture() {
-        arch=$(opkg print-architecture | grep -oE 'mips-3|mipsel-3|aarch64-3|armv7' | head -n 1)
+        arch=$(opkg print-architecture | grep -oE 'mips-3|mipsel-3|aarch64-3' | head -n 1)
 
         case "$arch" in
         "mips-3") echo "mips" ;;
         "mipsel-3") echo "mipsel" ;;
         "aarch64-3") echo "aarch64" ;;
-        "armv7") echo "armv7" ;;
         *) echo "unknown_arch" ;;
         esac
       }
