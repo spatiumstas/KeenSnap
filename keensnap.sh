@@ -1,5 +1,5 @@
 #!/bin/sh
-
+trap cleanup INT TERM EXIT
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 RED='\033[1;31m'
@@ -40,7 +40,7 @@ EOF
   echo "3. Подключить Telegram"
   echo "4. Ручной бэкап"
   echo ""
-  echo "77. Удалить файлы"
+  echo "77. Удалить скрипт"
   echo "99. Обновить скрипт"
   echo "00. Выход"
   echo ""
@@ -83,7 +83,8 @@ print_message() {
 exit_function() {
   echo ""
   read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
-  main_menu
+  pkill -P $$ 2>/dev/null
+  exec "$KEENSNAP_DIR/$SCRIPT"
 }
 
 create_schedule_init() {
@@ -408,11 +409,13 @@ EOF
 }
 
 remove_script() {
-  echo "Удаляю хук $KEENSNAP_DIR/$SNAPD..."
-  rm -r "$KEENSNAP_DIR/$SNAPD" 2>/dev/null
+  echo "Удаляю все файлы и выхожу из скрипта..."
+  rm -rf "$KEENSNAP_DIR" 2>/dev/null
+  rm -f "$PATH_SCHEDULE" 2>/dev/null
+  rm -f "$OPT_DIR/bin/$REPO" 2>/dev/null
 
   print_message "Успешно удалено" "$GREEN"
-  exit_function
+  cleanup
 }
 
 packages_checker() {
@@ -446,6 +449,11 @@ script_update() {
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
   fi
+}
+
+cleanup() {
+  pkill -P $$ 2>/dev/null
+  exit 0
 }
 
 if [ "$1" = "script_update" ]; then
