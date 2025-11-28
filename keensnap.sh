@@ -1,6 +1,6 @@
 #!/bin/sh
 trap cleanup INT TERM EXIT
-source /opt/root/KeenSnap/config.sh
+[ -f /opt/root/KeenSnap/config.sh ] && source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 RED='\033[1;31m'
 GREEN='\033[1;32m'
@@ -56,7 +56,7 @@ main_menu() {
     main_menu
   else
     case "$choice" in
-    1) setup_config ;;
+    1) setup_schedule ;;
     2) select_backup_options ;;
     3) setup_telegram ;;
     4) manual_backup ;;
@@ -159,47 +159,52 @@ EOF
   return 0
 }
 
-update_config() {
-  silent=$1
-  CONFIG_TEMPLATE_URL="https://raw.githubusercontent.com/$USERNAME/$REPO/main/$CONFIG_TEMPLATE"
-  TEMP_TEMPLATE_FILE="$TMP_DIR/$CONFIG_TEMPLATE"
-
-  [ -z "$silent" ] && print_message "Обновляю шаблон конфигурации..."
-
-  HTTP_STATUS=$(curl -s -o "$TEMP_TEMPLATE_FILE" -w "%{http_code}" "$CONFIG_TEMPLATE_URL")
-
-  if [ "$HTTP_STATUS" -ne 200 ]; then
-    [ -z "$silent" ] && print_message "Не удалось скачать шаблон конфигурации. HTTP-статус: $HTTP_STATUS" "$RED"
-    rm -f "$TEMP_TEMPLATE_FILE"
-    exit_function
+update_config_value() {
+  local key="$1"
+  local defval="$2"
+  if ! grep -q "^$key=" "$CONFIG_FILE" 2>/dev/null; then
+    echo "$key=$defval" >>"$CONFIG_FILE"
   fi
-
-  config_template=$(cat "$TEMP_TEMPLATE_FILE")
-
-  if [ ! -f "$CONFIG_FILE" ]; then
-    [ -z "$silent" ] && print_message "Создаю конфигурационный файл..." "$CYAN"
-    {
-      mkdir -p "$KEENSNAP_DIR"
-      echo "$config_template" >"$CONFIG_FILE"
-    } >/dev/null 2>&1
-  else
-    {
-      echo "$config_template" | while IFS= read -r line; do
-        param_name=$(echo "$line" | awk -F'=' '{print $1}')
-        if ! grep -q "^$param_name=" "$CONFIG_FILE"; then
-          echo "$line" >>"$CONFIG_FILE"
-        fi
-      done
-    } >/dev/null 2>&1
-  fi
-
-  rm -f "$TEMP_TEMPLATE_FILE"
-  create_schedule_init
 }
 
 setup_config() {
-  update_config
+  mkdir -p "$KEENSNAP_DIR"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    print_message "Создаю конфигурационный файл..." "$CYAN"
+    cat <<'EOL' >"$CONFIG_FILE"
+LOG_FILE="/opt/var/log/keensnap.log"
+PATH_SNAPD="/opt/root/KeenSnap/keensnap-init"
+SCHEDULE_NAME=""
+SELECTED_DRIVE=""
+BOT_TOKEN=""
+CHAT_ID=""
+BACKUP_STARTUP_CONFIG=false
+BACKUP_FIRMWARE=false
+BACKUP_ENTWARE=false
+BACKUP_WG_PRIVATE_KEY=false
+DELETE_ARCHIVE_AFTER_BACKUP=true
+SEND_BACKUP_TG=true
+EOL
+  else
+    update_config_value "LOG_FILE" '"/opt/var/log/keensnap.log"'
+    update_config_value "PATH_SNAPD" '"/opt/root/KeenSnap/keensnap-init"'
+    update_config_value "SCHEDULE_NAME" '""'
+    update_config_value "SELECTED_DRIVE" '""'
+    update_config_value "BOT_TOKEN" '""'
+    update_config_value "CHAT_ID" '""'
+    update_config_value "BACKUP_STARTUP_CONFIG" "false"
+    update_config_value "BACKUP_FIRMWARE" "false"
+    update_config_value "BACKUP_ENTWARE" "false"
+    update_config_value "BACKUP_WG_PRIVATE_KEY" "false"
+    update_config_value "DELETE_ARCHIVE_AFTER_BACKUP" "true"
+    update_config_value "SEND_BACKUP_TG" "true"
+  fi
+  dos2unix "$CONFIG_FILE" >/dev/null 2>&1
+  create_schedule_init
+}
 
+setup_schedule() {
+  setup_config
   if [ ! -f "$KEENSNAP_DIR/$SNAPD" ]; then
     curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SNAPD" --output "$KEENSNAP_DIR/$SNAPD"
     chmod +x "$KEENSNAP_DIR/$SNAPD"
@@ -391,7 +396,7 @@ EOF
         for folder in "$@"; do
           fname="${folder##*/}"
           echo "$i. $fname"
-          i=$((i+1))
+          i=$((i + 1))
         done
       fi
       read -p "Выберите папку, 0 — выбрать текущую, 00 — уровень назад: " folder_choice
@@ -458,9 +463,6 @@ cleanup() {
 
 if [ "$1" = "script_update" ]; then
   script_update "main"
-elif [ "$1" = "update_config" ]; then
-  update_config 1
-  main_menu
 else
   main_menu
 fi

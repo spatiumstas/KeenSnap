@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="v1.0.8"
+SCRIPT_VERSION="v1.0.9"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -17,20 +17,20 @@ statuses=""
 
       log() {
         local message="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
-        echo "$message" | tee -a "$LOG_FILE"
-        logger -p notice -t sms2gram "$*"
+        echo "$message"
+        logger -p notice -t KeenSnap "$*"
       }
 
       error() {
         local message="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
-        echo "$message" | tee -a "$LOG_FILE"
-        logger -p err -t sms2gram "$*"
+        echo "$message"
+        logger -p err -t KeenSnap "$*"
       }
 
       success() {
         local message="$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
-        echo "$message" | tee -a "$LOG_FILE"
-        logger -p notice -t sms2gram "$*"
+        echo "$message"
+        logger -p notice -t KeenSnap "$*"
       }
 
       get_device_info() {
