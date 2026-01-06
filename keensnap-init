@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="v1.0.9"
+SCRIPT_VERSION="v1.0.10"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -77,6 +77,78 @@ statuses=""
         fi
       }
 
+      execute_telegram_request() {
+        local request_type="$1"
+        shift
+        local response
+        local response_body
+
+        case "$request_type" in
+          "message")
+            local payload="$1"
+            response=$(curl -s --max-time 30 -o /tmp/telegram_response -w "%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "$payload")
+            ;;
+          "document")
+            local chat_id="$1"
+            local file_path="$2"
+            local caption="$3"
+            local topic_id="$4"
+            local curl_cmd="curl -s --max-time 30 -o /tmp/telegram_response -w \"%{http_code}\" -F \"chat_id=$chat_id\" -F \"document=@$file_path\" -F \"caption=$caption\" -F \"parse_mode=Markdown\""
+            if [ -n "$topic_id" ]; then
+              curl_cmd="$curl_cmd -F \"message_thread_id=$topic_id\""
+            fi
+            curl_cmd="$curl_cmd \"https://api.telegram.org/bot$BOT_TOKEN/sendDocument\""
+            response=$(eval "$curl_cmd")
+            ;;
+        esac
+        
+        if [ -f /tmp/telegram_response ]; then
+          response_body=$(cat /tmp/telegram_response)
+          rm -f /tmp/telegram_response
+        else
+          response_body=""
+        fi
+
+        echo "$response|$response_body"
+      }
+
+      send_with_retry() {
+        local request_type="$1"
+        local success_message="$2"
+        local error_prefix="$3"
+        shift 3
+        local retry_count=0
+        local max_retries=3
+        local retry_delay=5
+        local response
+        local response_body
+        local result
+
+        while [ $retry_count -lt $max_retries ]; do
+          result=$(execute_telegram_request "$request_type" "$@")
+          response="${result%%|*}"
+          response_body="${result##*|}"
+
+          if [ "$response" = "200" ] && echo "$response_body" | grep -q '"ok":true'; then
+            if [ -n "$success_message" ]; then
+              success "$success_message"
+            fi
+            return 0
+          else
+            error "${error_prefix} (HTTP $response). Ответ сервера: $response_body"
+            retry_count=$((retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+              log "Повторная попытка отправки... (попытка $retry_count из $max_retries)"
+              sleep $retry_delay
+            fi
+          fi
+        done
+        error "Все попытки отправки исчерпаны ($max_retries из $max_retries)"
+        return 1
+      }
+
       send_to_telegram() {
         if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
           log "Токен бота или ID чата не заданы. Отправка в Telegram пропущена."
@@ -94,9 +166,6 @@ statuses=""
         local escaped_caption
         escaped_caption=$(echo "$caption" | sed 's/[][*_`]/\\&/g')
 
-        local response
-        local response_body
-
         if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
           local payload
           if [ -n "$topic_id" ]; then
@@ -106,11 +175,9 @@ statuses=""
             payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' \
               "$chat_id" "$escaped_caption")
           fi
-          response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "$payload")
-          response_body=$(cat /tmp/telegram_response)
-          rm -f /tmp/telegram_response
+
+          send_with_retry "message" "Сообщение успешно отправлено в Telegram" "Ошибка отправки в Telegram" "$payload"
+          return $?
         else
           local max_size=$((49 * 1024 * 1024))
           local new_archive="${file_path%.tar.gz}.tar"
@@ -121,14 +188,14 @@ statuses=""
 
           if [ "$archive_size" -le "$max_size" ]; then
             log "Отправка архива: $new_archive"
-            response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
-              -F "document=@$new_archive" \
-              -F "caption=$escaped_caption" \
-              -F "parse_mode=Markdown" \
-              ${topic_id:+-F "message_thread_id=$topic_id"} \
-              "https://api.telegram.org/bot$BOT_TOKEN/sendDocument")
-            response_body=$(cat /tmp/telegram_response)
-            rm -f /tmp/telegram_response "$new_archive"
+            
+            if send_with_retry "document" "Сообщение успешно отправлено в Telegram" "Ошибка отправки в Telegram" "$chat_id" "$new_archive" "$escaped_caption" "$topic_id"; then
+              rm -f "$new_archive"
+              return 0
+            else
+              rm -f "$new_archive"
+              return 1
+            fi
           else
             package_check "coreutils-split"
             log "Архив превышает 49МБ, разбиваю на части..."
@@ -150,31 +217,19 @@ statuses=""
 
               local part_caption="[[Часть $part_number из $total_parts]] $escaped_caption"
               log "Отправка части: $part_file"
-              response=$(curl -s -o /tmp/telegram_response -w "%{http_code}" -F "chat_id=$chat_id" \
-                -F "document=@$part_file" \
-                -F "caption=$part_caption" \
-                -F "parse_mode=Markdown" \
-                ${topic_id:+-F "message_thread_id=$topic_id"} \
-                "https://api.telegram.org/bot$BOT_TOKEN/sendDocument")
-              response_body=$(cat /tmp/telegram_response)
-              rm -f /tmp/telegram_response "$part_file"
-
-              if [ "$response" -ne 200 ]; then
-                error "Ошибка отправки части $part_file (HTTP $response): $response_body"
+              
+              if send_with_retry "document" "" "Ошибка отправки части $part_file" "$chat_id" "$part_file" "$part_caption" "$topic_id"; then
+                rm -f "$part_file"
+              else
+                rm -f "$part_file"
+                rm -f "$new_archive"
                 return 1
               fi
               part_number=$((part_number + 1))
             done
             rm -f "$new_archive"
+            return 0
           fi
-        fi
-
-        if [ "$response" -eq 200 ]; then
-          success "Сообщение успешно отправлено в Telegram"
-          return 0
-        else
-          error "Ошибка отправки в Telegram (HTTP $response). Ответ сервера: $response_body"
-          return 1
         fi
       }
 

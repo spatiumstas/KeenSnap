@@ -16,7 +16,6 @@ KEENSNAP_DIR="/opt/root/KeenSnap"
 SNAPD="keensnap-init"
 CONFIG_FILE="/opt/root/KeenSnap/config.sh"
 PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap.sh"
-CONFIG_TEMPLATE="config.template"
 SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' $KEENSNAP_DIR/$SNAPD)
 
 print_menu() {
@@ -171,7 +170,7 @@ setup_config() {
   mkdir -p "$KEENSNAP_DIR"
   if [ ! -f "$CONFIG_FILE" ]; then
     print_message "Создаю конфигурационный файл..." "$CYAN"
-    cat <<'EOL' >"$CONFIG_FILE"
+  cat <<'EOL' >"$CONFIG_FILE"
 LOG_FILE="/opt/var/log/keensnap.log"
 PATH_SNAPD="/opt/root/KeenSnap/keensnap-init"
 SCHEDULE_NAME=""
