@@ -183,6 +183,7 @@ BACKUP_ENTWARE=false
 BACKUP_WG_PRIVATE_KEY=false
 DELETE_ARCHIVE_AFTER_BACKUP=true
 SEND_BACKUP_TG=true
+PROXY_INTERFACE=""
 EOL
   else
     update_config_value "LOG_FILE" '"/opt/var/log/keensnap.log"'
@@ -197,6 +198,7 @@ EOL
     update_config_value "BACKUP_WG_PRIVATE_KEY" "false"
     update_config_value "DELETE_ARCHIVE_AFTER_BACKUP" "true"
     update_config_value "SEND_BACKUP_TG" "true"
+    update_config_value "PROXY_INTERFACE" '""'
   fi
   dos2unix "$CONFIG_FILE" >/dev/null 2>&1
   create_schedule_init
