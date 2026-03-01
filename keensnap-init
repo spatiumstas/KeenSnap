@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="v1.0.11"
+SCRIPT_VERSION="v1.0.12"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -450,7 +450,7 @@ statuses=""
         local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*1000000 + $2*10000 + $3*100 + ($4 == "" ? 0 : $4)}')
         if [ "$remote_num" -gt "$local_num" ]; then
           log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
-          keensnap "script_update"
+          exec keensnap "script_update"
         fi
       }
 

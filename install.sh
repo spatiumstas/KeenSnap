@@ -19,4 +19,4 @@ cd $OPT_DIR/bin && ln -sf $KEENSNAP_DIR/$SCRIPT $OPT_DIR/bin/$REPO
 curl -L -s "https://raw.githubusercontent.com/spatiumstas/$REPO/main/$SNAPD" --output $TMP_DIR/$SNAPD
 mv "$TMP_DIR/$SNAPD" "$KEENSNAP_DIR/$SNAPD"
 chmod -R +x "$KEENSNAP_DIR"
-$KEENSNAP_DIR/$SCRIPT
+exec $KEENSNAP_DIR/$SCRIPT

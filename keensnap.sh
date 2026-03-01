@@ -1,5 +1,5 @@
 #!/bin/sh
-trap cleanup INT TERM EXIT
+trap cleanup HUP INT TERM EXIT
 [ -f /opt/root/KeenSnap/config.sh ] && source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 RED='\033[1;31m'
@@ -11,7 +11,7 @@ REPO="keensnap"
 SCRIPT="keensnap.sh"
 TMP_DIR="/tmp"
 OPT_DIR="/opt"
-
+STORAGE_DIR="/storage"
 KEENSNAP_DIR="/opt/root/KeenSnap"
 SNAPD="keensnap-init"
 CONFIG_FILE="/opt/root/KeenSnap/config.sh"
@@ -46,14 +46,18 @@ EOF
 }
 
 main_menu() {
-  print_menu
-  read -p "Выберите действие: " choice branch
-  echo ""
-  choice=$(echo "$choice" | tr -d '\032' | tr -d '[A-Z]')
+  while true; do
+    print_menu
+    if ! read -r -p "Выберите действие: " choice; then
+      echo ""
+      exit 0
+    fi
+    echo ""
+    choice=$(echo "$choice" | tr -d '\032' | tr -d '[A-Z]')
 
-  if [ -z "$choice" ]; then
-    main_menu
-  else
+    if [ -z "$choice" ]; then
+      continue
+    fi
     case "$choice" in
     1) setup_schedule ;;
     2) select_backup_options ;;
@@ -62,14 +66,13 @@ main_menu() {
     77) remove_script ;;
     99) script_update "main" ;;
     999) script_update "dev" ;;
-    00) exit ;;
+    00) exit 0 ;;
     *)
       echo "Неверный выбор. Попробуйте снова."
       sleep 1
-      main_menu
       ;;
     esac
-  fi
+  done
 }
 
 print_message() {
@@ -153,6 +156,7 @@ EOF
       print_message "Неверный выбор" "$RED"
       exit_function
     fi
+    print_message "Вы выбрали: $SCHEDULE_SELECTED" "$CYAN"
   fi
 
   return 0
@@ -163,6 +167,24 @@ update_config_value() {
   local defval="$2"
   if ! grep -q "^$key=" "$CONFIG_FILE" 2>/dev/null; then
     echo "$key=$defval" >>"$CONFIG_FILE"
+  fi
+}
+
+format_size() {
+  local used=$1
+  local total=$2
+  local used_mb=$((used / 1024 / 1024))
+  local total_mb=$((total / 1024 / 1024))
+  if [ "$total_mb" -ge 1024 ]; then
+    total_gb=$((total / 1024 / 1024 / 1024))
+    if [ "$used_mb" -lt 1024 ]; then
+      printf "%d MB / %d GB" $used_mb $total_gb
+    else
+      used_gb=$((used / 1024 / 1024 / 1024))
+      printf "%d / %d GB" $used_gb $total_gb
+    fi
+  else
+    printf "%d / %d MB" $used_mb $total_mb
   fi
 }
 
@@ -214,11 +236,8 @@ setup_schedule() {
   if ! select_schedule "Выберите номер расписания:"; then
     exit_function
   fi
-
-  print_message "Вы выбрали: $SCHEDULE_SELECTED" "$CYAN"
-
   sed -i "s|^SCHEDULE_NAME=.*|SCHEDULE_NAME=\"$SCHEDULE_SELECTED\"|" "$CONFIG_FILE"
-  identify_external_drive "Выберите накопитель для бэкапа:"
+  select_drive "Выберите накопитель для бэкапа:"
   sed -i "s|^SELECTED_DRIVE=.*|SELECTED_DRIVE=\"$selected_drive\"|" "$CONFIG_FILE"
   print_message "Вы выбрали: $selected_drive" "$CYAN"
 
@@ -292,16 +311,66 @@ manual_backup() {
   exit_function
 }
 
-identify_external_drive() {
-  local message=$1
-  local message2=$2
-  local special_message=$3
-  labels=""
+select_drive_extract_value() {
+  echo "$1" | cut -d ':' -f2- | sed 's/^[[:space:]]*//; s/[",]//g'
+}
+
+select_drive_reset_partition() {
+  in_partition=0
+  uuid=""
+  label=""
+  fstype=""
+  total_bytes=""
+  free_bytes=""
+}
+
+select_drive_reset_media() {
+  media_found=1
+  media_is_usb=0
+  current_manufacturer=""
+  select_drive_reset_partition
+}
+
+select_drive_add_partition() {
+  local used_bytes display_name fstype_upper
+
+  if [ "$(echo "$fstype" | tr '[:upper:]' '[:lower:]')" = "swap" ]; then
+    select_drive_reset_partition
+    return
+  fi
+
+  echo "$total_bytes" | grep -qE '^[0-9]+$' || total_bytes=0
+  echo "$free_bytes" | grep -qE '^[0-9]+$' || free_bytes=0
+
+  used_bytes=$((total_bytes - free_bytes))
+  [ "$used_bytes" -lt 0 ] && used_bytes=0
+
+  if [ -n "$label" ]; then
+    display_name="$label"
+  elif [ -n "$current_manufacturer" ]; then
+    display_name="$current_manufacturer"
+  else
+    display_name="Unknown"
+  fi
+
+  fstype_upper=$(echo "$fstype" | tr '[:lower:]' '[:upper:]')
+  echo "$index. $display_name ($fstype_upper, $(format_size $used_bytes $total_bytes))"
+  uuids="$uuids $uuid"
+  index=$((index + 1))
+  select_drive_reset_partition
+}
+
+select_drive() {
+  local message="$1"
+  local value
+
   uuids=""
   index=1
   media_found=0
+  media_is_usb=0
   media_output=$(ndmc -c show media)
   current_manufacturer=""
+  select_drive_reset_partition
 
   if [ -z "$media_output" ]; then
     print_message "Не удалось получить список накопителей" "$RED"
@@ -311,58 +380,41 @@ identify_external_drive() {
   echo "0. Встроенное хранилище (может не хватить места) $message2"
 
   while IFS= read -r line; do
+    value=$(select_drive_extract_value "$line")
     case "$line" in
-    *"name: Media"*)
-      media_found=1
-      current_manufacturer=""
+    *"\"Media"*"\":"* | *"name: Media"*)
+      select_drive_reset_media
       ;;
-    *"manufacturer:"*)
-      if [ "$media_found" = "1" ]; then
-        current_manufacturer=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
+    *"\"bus\":"* | *"bus:"*)
+      if [ "$media_found" = "1" ] && [ "$value" = "usb" ]; then
+        media_is_usb=1
       fi
       ;;
-    *"uuid:"*)
+    *"\"manufacturer\":"* | *"manufacturer:"*)
       if [ "$media_found" = "1" ]; then
-        uuid=$(echo "$line" | cut -d ':' -f2- | sed 's/^ *//g')
-        read -r label_line
-        read -r fstype_line
-        read -r state_line
-        read -r total_line
-        read -r free_line
-
-        label=$(echo "$label_line" | cut -d ':' -f2- | sed 's/^ *//g')
-        fstype=$(echo "$fstype_line" | cut -d ':' -f2- | sed 's/^ *//g')
-        free_bytes=$(echo "$free_line" | cut -d ':' -f2- | sed 's/^ *//g')
-
-        if [ "$fstype" = "swap" ]; then
-          uuid=""
-          continue
-        fi
-
-        free_mb=$((free_bytes / 1024 / 1024))
-        free_gb=$((free_mb / 1024))
-
-        if [ "$free_mb" -lt 1024 ]; then
-          free_display="$free_mb"
-          unit="MB"
-        else
-          free_display="$free_gb"
-          unit="GB"
-        fi
-
-        if [ -n "$label" ]; then
-          display_name="$label"
-        elif [ -n "$current_manufacturer" ]; then
-          display_name="$current_manufacturer"
-        else
-          display_name="Unknown"
-        fi
-
-        echo "$index. $display_name ($fstype, ${free_display}${unit})"
-        labels="$labels \"$display_name\""
-        uuids="$uuids $uuid"
-        index=$((index + 1))
-        uuid=""
+        current_manufacturer="$value"
+      fi
+      ;;
+    *"\"uuid\":"* | *"uuid:"*)
+      if [ "$media_found" = "1" ] && [ "$media_is_usb" = "1" ]; then
+        select_drive_reset_partition
+        in_partition=1
+        uuid="$value"
+      fi
+      ;;
+    *"\"label\":"* | *"label:"*)
+      [ "$in_partition" = "1" ] && label="$value"
+      ;;
+    *"\"fstype\":"* | *"fstype:"*)
+      [ "$in_partition" = "1" ] && fstype="$value"
+      ;;
+    *"\"total\":"* | *"total:"*)
+      [ "$in_partition" = "1" ] && total_bytes="$value"
+      ;;
+    *"\"free\":"* | *"free:"*)
+      if [ "$in_partition" = "1" ]; then
+        free_bytes="$value"
+        select_drive_add_partition
       fi
       ;;
     esac
@@ -377,12 +429,12 @@ EOF
   if [ "$choice" = "0" ]; then
     selected_drive="/storage"
   else
-    selected_drive=$(echo "$uuids" | awk -v choice="$choice" '{split($0, a, " "); print a[choice]}')
-    if [ -z "$selected_drive" ]; then
-      print_message "Неверный выбор" "$RED"
-      exit_function
-    fi
-    selected_drive="/tmp/mnt/$selected_drive"
+      selected_drive=$(echo "$uuids" | awk -v choice="$choice" '{split($0, a, " "); print a[choice]}')
+      if [ -z "$selected_drive" ]; then
+        print_message "Неверный выбор" "$RED"
+        exit_function
+      fi
+      selected_drive="/tmp/mnt/$selected_drive"
 
     while true; do
       echo ""
@@ -451,7 +503,7 @@ script_update() {
       print_message "Скрипт успешно обновлён" "$GREEN"
     fi
     sleep 1
-    $KEENSNAP_DIR/$SCRIPT update_config
+    exec $KEENSNAP_DIR/$SCRIPT update_config
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
   fi
