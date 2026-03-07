@@ -1,0 +1,67 @@
+name: Translate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  Translate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main-english
+          fetch-depth: 0
+
+      - name: Sync files from main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout origin/main -- keensnap.sh install.sh keensnap-init keensnap.sh README.md
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install deep-translator
+
+      - name: Run translation
+        run: |
+          sed -i 's/Модель:         /Model:     /g' keensnap.sh
+          sed -i 's/Накопитель:     /Storage:   /g' keensnap.sh
+          sed -i 's/Версия:         /Version:   /g' keensnap.sh
+          python .github/scripts/translate.py keensnap.sh install.sh keensnap-init keensnap.sh README.md
+          sed -i 's/Change language/Сменить язык/g' keensnap.sh
+          sed -i 's/BRANCH="main"/BRANCH="main-english"/g' keensnap.sh install.sh
+          sed -i 's/main/main-english/g' README.md
+
+      - name: Check for changes
+        id: git-check
+        run: |
+          if git diff --quiet keensnap.sh install.sh keensnap-init keensnap.sh README.md; then
+            echo "changes_exist=false" >> $GITHUB_OUTPUT
+          else
+            echo "changes_exist=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.git-check.outputs.changes_exist == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: Update English translations"
+          branch: translation/english-updates
+          base: main-english
+          delete-branch: true
+          title: "chore: Update English translations"
+          body: |
+            Automated update of English translations.
+          labels: translation, automated
