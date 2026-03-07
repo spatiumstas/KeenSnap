@@ -9,6 +9,7 @@ NC='\033[0m'
 USERNAME="spatiumstas"
 REPO="keensnap"
 SCRIPT="keensnap.sh"
+BRANCH="main"
 TMP_DIR="/tmp"
 OPT_DIR="/opt"
 STORAGE_DIR="/storage"
@@ -22,24 +23,27 @@ print_menu() {
   printf "\033c"
   printf "${CYAN}"
   cat <<'EOF'
-  _  __               ____
- | |/ /___  ___ _ __ / ___| _ __   __ _ _ __
- | ' // _ \/ _ \ '_ \\___ \| '_ \ / _` | '_ \
- | . \  __/  __/ | | |___) | | | | (_| | |_) |
- |_|\_\___|\___|_| |_|____/|_| |_|\__,_| .__/
-                                       |_|
+    __ __               _____                 
+   / //_/__  ___  ____ / ___/____  ____ _____ 
+  / ,< / _ \/ _ \/ __ \\__ \/ __ \/ __ `/ __ \
+ / /| /  __/  __/ / / /__/ / / / / /_/ / /_/ /
+/_/ |_\___/\___/_/ /_/____/_/ /_/\__,_/ .___/ 
+                                     /_/      
+
 EOF
   if [ ! -f $KEENSNAP_DIR/$SNAPD ]; then
     printf "${RED}Конфигурация не настроена${NC}\n\n"
   else
-    printf "${RED}Версия скрипта: ${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
+    printf "${CYAN}Модель:         ${NC}%s\n" "$(get_device) ($(get_hw_id)) | $(get_fw_version)"
+    printf "${CYAN}Накопитель:     ${NC}%s\n" "$SELECTED_DRIVE"
+    printf "${CYAN}Версия:         ${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
   fi
   echo "1. Настроить конфигурацию"
   echo "2. Параметры бэкапа"
   echo "3. Подключить Telegram"
   echo "4. Ручной бэкап"
-  echo ""
-  echo "77. Удалить скрипт"
+  printf "\n77. Change language"  
+  echo "88. Удалить скрипт"
   echo "99. Обновить скрипт"
   echo "00. Выход"
   echo ""
@@ -63,9 +67,9 @@ main_menu() {
     2) select_backup_options ;;
     3) setup_telegram ;;
     4) manual_backup ;;
-    77) remove_script ;;
-    99) script_update "main" ;;
-    999) script_update "dev" ;;
+    77) changeLanguage ;;
+    88) remove_script ;;
+    99) script_update ;;
     00) exit 0 ;;
     *)
       echo "Неверный выбор. Попробуйте снова."
@@ -101,6 +105,30 @@ exit 0
 
 EOL
   chmod +x "$PATH_SCHEDULE"
+}
+
+rci_request() {
+  local endpoint="$1"
+  curl -s "http://localhost:79/rci/$endpoint"
+}
+
+rci_parse() {
+  local command="$1"
+  curl -fsS -H "Content-Type: application/json" \
+    -d "[{\"parse\":\"$command\"}]" \
+    "http://localhost:79/rci/"
+}
+
+get_device() {
+  rci_request "show/version" | grep -o '"device": "[^"]*"' | cut -d'"' -f4 2>/dev/null
+}
+
+get_fw_version() {
+  rci_request "show/version" | grep -o '"title": "[^"]*"' | cut -d'"' -f4 2>/dev/null
+}
+
+get_hw_id() {
+  rci_request "show/version" | grep -o '"hw_id": "[^"]*"' | cut -d'"' -f4 2>/dev/null
 }
 
 select_schedule() {
@@ -229,7 +257,7 @@ EOL
 setup_schedule() {
   setup_config
   if [ ! -f "$KEENSNAP_DIR/$SNAPD" ]; then
-    curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SNAPD" --output "$KEENSNAP_DIR/$SNAPD"
+    curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SNAPD" --output "$KEENSNAP_DIR/$SNAPD"
     chmod +x "$KEENSNAP_DIR/$SNAPD"
   fi
 
@@ -239,6 +267,9 @@ setup_schedule() {
   sed -i "s|^SCHEDULE_NAME=.*|SCHEDULE_NAME=\"$SCHEDULE_SELECTED\"|" "$CONFIG_FILE"
   select_drive "Выберите накопитель для бэкапа:"
   sed -i "s|^SELECTED_DRIVE=.*|SELECTED_DRIVE=\"$selected_drive\"|" "$CONFIG_FILE"
+  read -p "Введите интерфейс прокси (опционально, например: nwg0): " proxy_interface
+  proxy_interface=$(echo "$proxy_interface" | sed 's/^[ \t]*//;s/[ \t]*$//')
+  sed -i "s|^PROXY_INTERFACE=.*|PROXY_INTERFACE=\"$proxy_interface\"|" "$CONFIG_FILE"
   print_message "Вы выбрали: $selected_drive" "$CYAN"
 
   dos2unix "$CONFIG_FILE"
@@ -368,7 +399,7 @@ select_drive() {
   index=1
   media_found=0
   media_is_usb=0
-  media_output=$(ndmc -c show media)
+  media_output=$(rci_parse "show media")
   current_manufacturer=""
   select_drive_reset_partition
 
@@ -476,6 +507,22 @@ remove_script() {
   cleanup
 }
 
+changeLanguage() {
+  if [ "$BRANCH" = "main" ]; then
+    BRANCH_NEW="main-english"
+  else
+    BRANCH_NEW="main"
+  fi
+  print_message "Switching..." "$CYAN"
+  if curl -fL -s "https://raw.githubusercontent.com/$USERNAME/$REPO/${BRANCH_NEW}/install.sh" --output /tmp/install.sh &&
+    [ -s /tmp/install.sh ]; then
+    exec sh /tmp/install.sh
+  else
+    print_message "Error switching" "$RED"
+    exit_function
+  fi
+}
+
 packages_checker() {
   if ! opkg list-installed | grep -q "^curl"; then
     opkg update && opkg install curl
@@ -484,7 +531,6 @@ packages_checker() {
 }
 
 script_update() {
-  BRANCH="$1"
   packages_checker
   curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SCRIPT" --output $TMP_DIR/$SCRIPT
   curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SNAPD" --output $KEENSNAP_DIR/$SNAPD
@@ -497,11 +543,7 @@ script_update() {
       cd $OPT_DIR/bin
       ln -s "$KEENSNAP_DIR/$SCRIPT" "$OPT_DIR/bin/$REPO"
     fi
-    if [ "$BRANCH" = "dev" ]; then
-      print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
-    else
-      print_message "Скрипт успешно обновлён" "$GREEN"
-    fi
+    print_message "Скрипт успешно обновлён" "$GREEN"
     sleep 1
     exec $KEENSNAP_DIR/$SCRIPT update_config
   else
@@ -515,7 +557,7 @@ cleanup() {
 }
 
 if [ "$1" = "script_update" ]; then
-  script_update "main"
+  script_update
 else
   main_menu
 fi

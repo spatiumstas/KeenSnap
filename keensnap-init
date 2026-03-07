@@ -2,7 +2,7 @@
 
 source /opt/root/KeenSnap/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="v1.0.12"
+SCRIPT_VERSION="1.1"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -33,14 +33,28 @@ statuses=""
         logger -p notice -t KeenSnap "$*"
       }
 
+      rci_request() {
+        local endpoint="$1"
+        curl -s "http://localhost:79/rci/$endpoint"
+      }
+
+      rci_parse() {
+        local command="$1"
+        curl -fsS -H "Content-Type: application/json" \
+          -d "[{\"parse\":\"$command\"}]" \
+          "http://localhost:79/rci/"
+      }
+
       get_device_info() {
-        version_output=$(ndmc -c show version 2>/dev/null)
-        DEVICE=$(echo "$version_output" | grep "device" | awk -F": " '{print $2}')
-        FW_VERSION=$(echo "$version_output" | grep "release" | awk -F": " '{print $2}')
-        DEVICE_ID=$(echo "$version_output" | grep "hw_id" | awk -F": " '{print $2}')
+        version_output=$(rci_request "show/version" 2>/dev/null)
+        DEVICE=$(echo "$version_output" | grep -o '"device": "[^"]*"' | cut -d'"' -f4 2>/dev/null)
+        FW_VERSION=$(echo "$version_output" | grep -o '"release": "[^"]*"' | cut -d'"' -f4 2>/dev/null)
+        FW_VERSION_TITLE=$(echo "$version_output" | grep -o '"title": "[^"]*"' | cut -d'"' -f4 2>/dev/null)
+        DEVICE_ID=$(echo "$version_output" | grep -o '"hw_id": "[^"]*"' | cut -d'"' -f4 2>/dev/null)
 
         [ -z "$DEVICE" ] && DEVICE="unknown"
         [ -z "$FW_VERSION" ] && FW_VERSION="unknown"
+        [ -z "$FW_VERSION_TITLE" ] && FW_VERSION_TITLE="$DEVICE"
         [ -z "$DEVICE_ID" ] && DEVICE_ID="unknown"
       }
 
@@ -134,7 +148,7 @@ statuses=""
           response_body="${result##*|}"
 
           if [ -z "$response_body" ] && [ "$response" != "200" ]; then
-            error "Ошибка отправки в Telegram: Пустой ответ сервера, попробуйте задать отдельный proxy interface для подключения"
+            error "Ошибка отправки в Telegram: Пустой ответ сервера, задайте отдельный интерфейс прокси для подключения"
             return 1
           fi
 
@@ -219,7 +233,7 @@ statuses=""
             }
 
             for part_file in $part_files; do
-              local part_caption="[[Часть $part_number из $total_parts]] $escaped_caption"
+              local part_caption="[[Часть $part_number из $total_parts]]"$'\n'"$escaped_caption"
               log "Отправка части: $part_file"
               
               if send_with_retry "document" "" "Ошибка отправки части $part_file" "$chat_id" "$part_file" "$part_caption" "$topic_id"; then
@@ -272,7 +286,7 @@ statuses=""
           local ndmc_path="${paths_out%%|*}"
           local rel_path="${paths_out##*|}"
           local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
-          ndmc -c "copy $item_name $backup_file"
+          rci_parse "copy $item_name $backup_file" >/dev/null 2>&1
           if [ $? -eq 0 ]; then
             success "$item_name сохранён"
             success=0
@@ -336,7 +350,7 @@ statuses=""
           local ndmc_path="${paths_out%%|*}"
           local rel_path="${paths_out##*|}"
           local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
-          ndmc -c "copy flash:/$item_name $backup_file"
+          rci_parse "copy flash:/$item_name $backup_file" >/dev/null 2>&1
           if [ $? -eq 0 ]; then
             success "$item_name сохранена"
             success=0
@@ -382,7 +396,7 @@ statuses=""
         local archive_path
         if [ -n "$SELECTED_DRIVE" ] && [ -d "$SELECTED_DRIVE/$date" ]; then
           cp "$LOG_FILE" "$SELECTED_DRIVE/$date/backup_log.txt"
-          archive_path="$SELECTED_DRIVE/${DEVICE_ID}_$date.tar.gz"
+          archive_path="$SELECTED_DRIVE/${DEVICE_ID}_${FW_VERSION}_$date.tar.gz"
           log "Создание архива..."
           tar -czf "$archive_path" -C "$SELECTED_DRIVE" "$date"
           if [ $? -ne 0 ]; then
@@ -397,7 +411,7 @@ statuses=""
           return 1
         fi
 
-        local report="Бэкап $DEVICE ($DEVICE_ID):"$'\n\n'
+        local report="Бэкап: $DEVICE ($DEVICE_ID)"$'\n'"Версия ОС: $FW_VERSION_TITLE"$'\n\n'
         local i=1
         for item in $items; do
           local status_value=$(echo $statuses | cut -d' ' -f$i)
