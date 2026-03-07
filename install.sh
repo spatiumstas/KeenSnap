@@ -7,7 +7,7 @@ CONFIG="config.template"
 TMP_DIR="/tmp"
 OPT_DIR="/opt"
 KEENSNAP_DIR="/opt/root/KeenSnap"
-BRANCH="main"
+BRANCH="main-english"
 
 print_message() {
   local message="$1"
@@ -24,7 +24,7 @@ packages_checker() {
     fi
   done
   if [ -n "$missing" ]; then
-    print_message "Устанавливаем:$missing"
+    print_message "Install:$missing"
     opkg update && opkg install $missing
     echo ""
   fi
