@@ -13,7 +13,7 @@ statuses=""
   start)
     if [ -n "$2" ]; then
       SCHEDULE="$2"
-      echo "Запуск KeenSnap (расписание: $SCHEDULE)"
+      echo "Start KeenSnap (schedule: $SCHEDULE)"
 
       log() {
         local message="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
@@ -87,7 +87,7 @@ statuses=""
         local current_size=$(wc -c <"$log_file")
         if [ $current_size -gt $max_size ]; then
           sed -i '1,100d' "$log_file"
-          log "Лог-файл был обрезан на первые 100 строк."
+          log "The log file was truncated for the first 100 lines."
         fi
       }
 
@@ -148,7 +148,7 @@ statuses=""
           response_body="${result##*|}"
 
           if [ -z "$response_body" ] && [ "$response" != "200" ]; then
-            error "Ошибка отправки в Telegram: Пустой ответ сервера, задайте отдельный интерфейс прокси для подключения"
+            error "Error sending Telegram: Empty server response, set a separate proxy interface to connect"
             return 1
           fi
 
@@ -158,21 +158,21 @@ statuses=""
             fi
             return 0
           else
-            error "${error_prefix} (HTTP $response). Ответ сервера: $response_body"
+            error "${error_prefix} (HTTP $response). Server Response: $response_body"
             retry_count=$((retry_count + 1))
             if [ $retry_count -lt $max_retries ]; then
-              log "Повторная попытка отправки... (попытка $retry_count из $max_retries)"
+              log "Retry Send... (attempt by $retry_count из $max_retries)"
               sleep $retry_delay
             fi
           fi
         done
-        error "Все попытки отправки исчерпаны ($max_retries из $max_retries)"
+        error "All upload attempts exhausted ($max_retries из $max_retries)"
         return 1
       }
 
       send_to_telegram() {
         if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-          log "Токен бота или ID чата не заданы. Отправка в Telegram пропущена."
+          log "Bot Token or ID chat not set. Sending to Telegram ignored;."
           return 1
         fi
 
@@ -197,7 +197,7 @@ statuses=""
               "$chat_id" "$escaped_caption")
           fi
 
-          send_with_retry "message" "Сообщение успешно отправлено в Telegram" "Ошибка отправки в Telegram" "$payload"
+          send_with_retry "message" "Message has been successfully sent Telegram" "Error sending Telegram" "$payload"
           return $?
         else
           local max_size=$((49 * 1024 * 1024))
@@ -205,16 +205,16 @@ statuses=""
           archive_size=$(wc -c <"$file_path")
 
           if [ "$archive_size" -le "$max_size" ]; then
-            log "Отправка архива: $file_path"
+            log "Sending archive: $file_path"
             
-            if send_with_retry "document" "Сообщение успешно отправлено в Telegram" "Ошибка отправки в Telegram" "$chat_id" "$file_path" "$escaped_caption" "$topic_id"; then
+            if send_with_retry "document" "Message has been successfully sent Telegram" "Error sending Telegram" "$chat_id" "$file_path" "$escaped_caption" "$topic_id"; then
               return 0
             else
               return 1
             fi
           else
             package_check "coreutils-split"
-            log "Архив превышает 49МБ, разбиваю на части..."
+            log "The archive exceeds 49 MB, I divide it into parts..."
             split -b "$max_size" -d --numeric-suffixes=001 --suffix-length=3 "$file_path" "${file_path}."
 
             local part_files=""
@@ -233,10 +233,10 @@ statuses=""
             }
 
             for part_file in $part_files; do
-              local part_caption="[[Часть $part_number из $total_parts]]"$'\n'"$escaped_caption"
-              log "Отправка части: $part_file"
+              local part_caption="[[Part $part_number из $total_parts]]"$'\n'"$escaped_caption"
+              log "Part Sending: $part_file"
               
-              if send_with_retry "document" "" "Ошибка отправки части $part_file" "$chat_id" "$part_file" "$part_caption" "$topic_id"; then
+              if send_with_retry "document" "" "Failed to send part $part_file" "$chat_id" "$part_file" "$part_caption" "$topic_id"; then
                 rm -f "$part_file"
               else
                 cleanup_parts
@@ -281,17 +281,17 @@ statuses=""
         local item_name="startup-config"
 
         if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
+          log "Backup  $item_name..."
           local paths_out=$(get_drive_path "$SELECTED_DRIVE" "$date")
           local ndmc_path="${paths_out%%|*}"
           local rel_path="${paths_out##*|}"
           local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
           rci_parse "copy $item_name $backup_file" >/dev/null 2>&1
           if [ $? -eq 0 ]; then
-            success "$item_name сохранён"
+            success "$item_name Saved By"
             success=0
           else
-            error "Ошибка при сохранении $item_name"
+            error "Save error $item_name"
           fi
         fi
         items="$items $item_name"
@@ -303,16 +303,16 @@ statuses=""
         local item_name="Entware"
         package_check "tar"
         if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
+          log "Backup  $item_name..."
           local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
           tar_output=$(tar cvzf "$backup_file" -C /opt --exclude="$backup_file" . 2>&1)
           log_operation=$(echo "$tar_output" | tail -n 2)
 
           if echo "$log_operation" | grep -iq "error\|no space left on device"; then
-            log "Ошибка при сохранении $item_name:" "$RED"
+            log "Save error $item_name:" "$RED"
             echo "$log_operation"
           else
-            success "$item_name сохранён"
+            success "$item_name Saved By"
             success=0
           fi
         fi
@@ -326,15 +326,15 @@ statuses=""
         local item_name="WireGuard-Private-Key"
         package_check "wireguard-tools"
         if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
+          log "Backup  $item_name..."
           local folder_path="$SELECTED_DRIVE/$date"
           local backup_file="$folder_path/$item_name.txt"
           wg show all private-key >"$backup_file"
           if [ $? -eq 0 ]; then
-            success "$item_name сохранён"
+            success "$item_name Saved By"
             success=0
           else
-            error "Ошибка при сохранении $item_name"
+            error "Save error $item_name"
           fi
           items="$items $item_name"
           statuses="$statuses $success"
@@ -345,17 +345,17 @@ statuses=""
         local success=1
         local item_name="firmware"
         if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
+          log "Backup  $item_name..."
           local paths_out=$(get_drive_path "$SELECTED_DRIVE" "$date")
           local ndmc_path="${paths_out%%|*}"
           local rel_path="${paths_out##*|}"
           local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
           rci_parse "copy flash:/$item_name $backup_file" >/dev/null 2>&1
           if [ $? -eq 0 ]; then
-            success "$item_name сохранена"
+            success "$item_name preserved"
             success=0
           else
-            error "Ошибка при сохранении $item_name"
+            error "Save error $item_name"
           fi
         fi
         items="$items $item_name"
@@ -389,7 +389,7 @@ statuses=""
         fi
 
         if [ "$backup_performed" -eq 0 ]; then
-          log "Ни один из вариантов бэкапа не выбран"
+          log "No backup option selected"
           return 1
         fi
 
@@ -397,21 +397,21 @@ statuses=""
         if [ -n "$SELECTED_DRIVE" ] && [ -d "$SELECTED_DRIVE/$date" ]; then
           cp "$LOG_FILE" "$SELECTED_DRIVE/$date/backup_log.txt"
           archive_path="$SELECTED_DRIVE/${DEVICE_ID}_${FW_VERSION}_$date.tar.gz"
-          log "Создание архива..."
+          log "Creating file backup zips..."
           tar -czf "$archive_path" -C "$SELECTED_DRIVE" "$date"
           if [ $? -ne 0 ]; then
-            error "Ошибка при создании архива"
-            send_to_telegram "Ошибка при создании архива" "$SELECTED_DRIVE/$date/backup_log.txt"
+            error "Error creating archive"
+            send_to_telegram "Error creating archive" "$SELECTED_DRIVE/$date/backup_log.txt"
             rm -rf "$archive_path"
             return 1
           fi
-          success "Архив создан"
+          success "Done create archive"
         else
-          error "Невозможно создать архив: папка с бэкапами не найдена."
+          error "Unable to create archive: backup folder not found."
           return 1
         fi
 
-        local report="Бэкап: $DEVICE ($DEVICE_ID)"$'\n'"Версия ОС: $FW_VERSION_TITLE"$'\n\n'
+        local report="Backup : $DEVICE ($DEVICE_ID)"$'\n'"OS version: $FW_VERSION_TITLE"$'\n\n'
         local i=1
         for item in $items; do
           local status_value=$(echo $statuses | cut -d' ' -f$i)
@@ -429,9 +429,9 @@ statuses=""
 
         if [ "$DELETE_ARCHIVE_AFTER_BACKUP" = "true" ]; then
           rm -rf "$archive_path"
-          log "Архив удалён"
+          log "Archive deleted."
         else
-          log "Архив сохранён: $archive_path"
+          log "Archive saved: $archive_path"
         fi
       }
 
@@ -442,28 +442,28 @@ statuses=""
       main() {
         clean_log "$LOG_FILE"
         get_device_info
-        log "Запуск скрипта для расписания $SCHEDULE"
+        log "Running the script for the schedule $SCHEDULE"
         local drive_uuid=$(basename "$SELECTED_DRIVE")
         local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $4}')
         if [ -z "$SELECTED_DRIVE" ] || ([ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $device_uuid"); then
           drive_name=$(basename "$SELECTED_DRIVE")
-          error "Выбранный накопитель $drive_name не подключён"
+          error "Selected drive $drive_name Disconnected"
           if [ "$SEND_BACKUP_TG" = "true" ]; then
-            send_to_telegram "❌ Выбранный накопитель $drive_name не подключён" ""
+            send_to_telegram "❌ Selected drive $drive_name Disconnected" ""
           fi
           return 1
         fi
 
         create_backup_and_send_report
         delete_temp_folder
-        log "Скрипт завершил работу"
+        log "Script has shut down"
       }
 
       check_update() {
         local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*1000000 + $2*10000 + $3*100 + ($4 == "" ? 0 : $4)}')
         local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*1000000 + $2*10000 + $3*100 + ($4 == "" ? 0 : $4)}')
         if [ "$remote_num" -gt "$local_num" ]; then
-          log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
+          log "New Version Available: $REMOTE_VERSION. Updating..."
           exec keensnap "script_update"
         fi
       }
