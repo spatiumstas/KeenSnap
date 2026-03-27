@@ -1,0 +1,7 @@
+#!/bin/sh
+
+
+rm -f "/opt/bin/keensnap"
+rm -f "/opt/etc/ndm/schedule.d/99-keensnap.sh"
+
+exit 0

@@ -1,8 +1,9 @@
 #!/bin/sh
 
-source /opt/root/KeenSnap/config.sh
+CONFIG_FILE="/opt/root/KeenSnap/config.conf"
+[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
-SCRIPT_VERSION="1.1"
+SCRIPT_VERSION=""
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 date="backup$(date +%Y-%m-%d_%H-%M)"
@@ -91,21 +92,35 @@ statuses=""
         fi
       }
 
+      curl_with_network() {
+        if [ -n "${PROXY_INTERFACE:-}" ] && [ -n "${TG_PROXY:-}" ]; then
+          curl --interface "$PROXY_INTERFACE" --proxy "$TG_PROXY" "$@"
+        elif [ -n "${PROXY_INTERFACE:-}" ]; then
+          curl --interface "$PROXY_INTERFACE" "$@"
+        elif [ -n "${TG_PROXY:-}" ]; then
+          curl --proxy "$TG_PROXY" "$@"
+        else
+          curl "$@"
+        fi
+      }
+
+      json_extract_value() {
+        local payload="$1"
+        local key="$2"
+        echo "$payload" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+      }
+
       execute_telegram_request() {
         local request_type="$1"
         shift
         local response
         local response_body
-        local curl_interface=""
-        if [ -n "${PROXY_INTERFACE:-}" ]; then
-          curl_interface="--interface $PROXY_INTERFACE"
-        fi
 
         case "$request_type" in
           "message")
             local payload="$1"
             local curl_output
-            curl_output=$(curl -s $curl_interface -w "\n%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -H "Content-Type: application/json" -d "$payload")
+            curl_output=$(curl_with_network -s -w "\n%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -H "Content-Type: application/json" -d "$payload")
             response=$(echo "$curl_output" | tail -n 1)
             response_body=$(echo "$curl_output" | sed '$d')
             ;;
@@ -115,7 +130,7 @@ statuses=""
             local caption="$3"
             local topic_id="$4"
             local curl_output
-            curl_output=$(curl -s $curl_interface -w "\n%{http_code}" \
+            curl_output=$(curl_with_network -s -w "\n%{http_code}" \
               -F "chat_id=$chat_id" \
               -F "document=@$file_path" \
               -F "caption=$caption" \
@@ -128,6 +143,138 @@ statuses=""
         esac
 
         echo "$response|$response_body"
+      }
+
+      send_to_gdrive() {
+        local file_path="$1"
+        local file_name
+        local token_response
+        local access_token
+        local metadata
+        local response
+        local file_id
+
+        if [ -z "$GD_CLIENT_ID" ] || [ -z "$GD_CLIENT_SECRET" ] || [ -z "$GD_REFRESH_TOKEN" ]; then
+          error "Google Drive не настроен: заполните CLIENT_ID/CLIENT_SECRET/REFRESH_TOKEN"
+          return 1
+        fi
+
+        token_response=$(curl_with_network -s -X POST "https://oauth2.googleapis.com/token" \
+          -d "client_id=$GD_CLIENT_ID" \
+          -d "client_secret=$GD_CLIENT_SECRET" \
+          -d "refresh_token=$GD_REFRESH_TOKEN" \
+          -d "grant_type=refresh_token")
+        access_token=$(json_extract_value "$token_response" "access_token")
+
+        if [ -z "$access_token" ]; then
+          error "Не удалось получить Google Drive access_token"
+          return 1
+        fi
+
+        file_name=$(basename "$file_path")
+        metadata="{\"name\":\"$file_name\",\"mimeType\":\"application/gzip\""
+        if [ -n "$GD_FOLDER_ID" ]; then
+          metadata="$metadata,\"parents\":[\"$GD_FOLDER_ID\"]"
+        fi
+        metadata="$metadata}"
+
+        response=$(curl_with_network -s -X POST "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart" \
+          -H "Authorization: Bearer $access_token" \
+          -F "metadata=$metadata;type=application/json" \
+          -F "file=@$file_path;type=application/gzip")
+
+        file_id=$(json_extract_value "$response" "id")
+        if [ -n "$file_id" ]; then
+          success "Архив загружен в Google Drive"
+          return 0
+        fi
+
+        error "Ошибка загрузки в Google Drive. Ответ: $response"
+        return 1
+      }
+
+      send_archive_by_method() {
+        local report="$1"
+        local archive_path="$2"
+        local methods="$UPLOAD_METHOD"
+        local sent_count=0
+
+        if [ -z "$methods" ]; then
+          error "UPLOAD_METHOD не задан, отправка пропущена"
+          return 1
+        fi
+
+        methods=$(echo "$methods" | tr ',' ' ' | tr ' ' '\n' | sed '/^$/d' | awk '!seen[$0]++')
+
+        for method in $methods; do
+          case "$method" in
+            Telegram)
+              if send_to_telegram "$report" "$archive_path"; then
+                sent_count=$((sent_count + 1))
+              else
+                error "Ошибка отправки в Telegram"
+              fi
+              ;;
+            GDrive)
+              if send_to_gdrive "$archive_path"; then
+                sent_count=$((sent_count + 1))
+              else
+                error "Ошибка отправки в Google Drive"
+              fi
+              ;;
+            *)
+              error "Неизвестный метод отправки: $method"
+              ;;
+          esac
+        done
+
+        if [ "$sent_count" -eq 0 ]; then
+          error "Архив не отправлен ни в один канал"
+          return 1
+        fi
+        return 0
+      }
+
+      has_upload_method() {
+        local target="$1"
+        local methods="$UPLOAD_METHOD"
+
+        [ -z "$methods" ] && return 1
+
+        methods=$(echo "$methods" | tr ',' ' ' | tr ' ' '\n' | sed '/^$/d' | awk '!seen[$0]++')
+        echo "$methods" | grep -qx "$target"
+      }
+
+      cleanup_old_archives() {
+        local old_count=0
+        local old_list
+
+        if [ -z "$RETAIN_ARCHIVES_DAYS" ]; then
+          return 0
+        fi
+
+        if ! echo "$RETAIN_ARCHIVES_DAYS" | grep -Eq '^[0-9]+$'; then
+          log "RETAIN_ARCHIVES_DAYS задан некорректно: $RETAIN_ARCHIVES_DAYS. Очистка пропущена"
+          return 0
+        fi
+
+        if [ "$RETAIN_ARCHIVES_DAYS" -eq 0 ]; then
+          log "Очистка старых архивов отключена"
+          return 0
+        fi
+
+        old_list=$(find "$SELECTED_DRIVE" -maxdepth 1 -type f -name "${DEVICE_ID}_*backup*.tar.gz" -mtime +"$RETAIN_ARCHIVES_DAYS" 2>/dev/null)
+        if [ -z "$old_list" ]; then
+          return 0
+        fi
+
+        for old_file in $old_list; do
+          rm -f "$old_file" && old_count=$((old_count + 1))
+        done
+
+        if [ "$old_count" -gt 0 ]; then
+          log "Удалено старых архивов: $old_count (хранение: $RETAIN_ARCHIVES_DAYS дней)"
+        fi
       }
 
       send_with_retry() {
@@ -396,6 +543,15 @@ statuses=""
         local archive_path
         if [ -n "$SELECTED_DRIVE" ] && [ -d "$SELECTED_DRIVE/$date" ]; then
           cp "$LOG_FILE" "$SELECTED_DRIVE/$date/backup_log.txt"
+          cat >"$SELECTED_DRIVE/$date/backup_meta.info" <<EOF
+SCRIPT_VERSION="$SCRIPT_VERSION"
+DEVICE="$DEVICE"
+DEVICE_ID="$DEVICE_ID"
+FW_VERSION="$FW_VERSION"
+FW_VERSION_TITLE="$FW_VERSION_TITLE"
+DATE="$date"
+UPLOAD_METHOD="$UPLOAD_METHOD"
+EOF
           archive_path="$SELECTED_DRIVE/${DEVICE_ID}_${FW_VERSION}_$date.tar.gz"
           log "Создание архива..."
           tar -czf "$archive_path" -C "$SELECTED_DRIVE" "$date"
@@ -423,15 +579,16 @@ statuses=""
           i=$((i + 1))
         done
 
-        if [ "$SEND_BACKUP_TG" = "true" ]; then
-          send_to_telegram "$report" "$archive_path"
-        fi
-
-        if [ "$DELETE_ARCHIVE_AFTER_BACKUP" = "true" ]; then
-          rm -rf "$archive_path"
-          log "Архив удалён"
+        if send_archive_by_method "$report" "$archive_path"; then
+          if [ "$DELETE_LOCAL_ARCHIVE_AFTER_BACKUP" = "true" ]; then
+            rm -f "$archive_path"
+            log "Архив удалён после отправки"
+          else
+            log "Архив сохранён: $archive_path"
+            cleanup_old_archives
+          fi
         else
-          log "Архив сохранён: $archive_path"
+          error "Отправка не удалась, архив оставлен локально: $archive_path"
         fi
       }
 
@@ -448,7 +605,7 @@ statuses=""
         if [ -z "$SELECTED_DRIVE" ] || ([ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $device_uuid"); then
           drive_name=$(basename "$SELECTED_DRIVE")
           error "Выбранный накопитель $drive_name не подключён"
-          if [ "$SEND_BACKUP_TG" = "true" ]; then
+          if has_upload_method "Telegram"; then
             send_to_telegram "❌ Выбранный накопитель $drive_name не подключён" ""
           fi
           return 1
@@ -460,8 +617,25 @@ statuses=""
       }
 
       check_update() {
-        local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*1000000 + $2*10000 + $3*100 + ($4 == "" ? 0 : $4)}')
-        local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*1000000 + $2*10000 + $3*100 + ($4 == "" ? 0 : $4)}')
+        if [ "$AUTO_UPDATE" != "true" ]; then
+          return 0
+        fi
+
+        local local_num remote_num
+        local l1 l2 l3 l4 r1 r2 r3 r4
+
+        if [ -z "$SCRIPT_VERSION" ] || [ -z "$REMOTE_VERSION" ]; then
+          return 0
+        fi
+
+        set -- $(printf '%s' "$SCRIPT_VERSION" | sed 's/[^0-9]/ /g')
+        l1=${1:-0}; l2=${2:-0}; l3=${3:-0}; l4=${4:-0}
+        local_num=$(( (l1 << 24) + (l2 << 16) + (l3 << 8) + l4 ))
+
+        set -- $(printf '%s' "$REMOTE_VERSION" | sed 's/[^0-9]/ /g')
+        r1=${1:-0}; r2=${2:-0}; r3=${3:-0}; r4=${4:-0}
+        remote_num=$(( (r1 << 24) + (r2 << 16) + (r3 << 8) + r4 ))
+
         if [ "$remote_num" -gt "$local_num" ]; then
           log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
           exec keensnap "script_update" "silent"

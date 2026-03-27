@@ -1,0 +1,120 @@
+name: Build and Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_pages:
+        description: "Publish"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-package:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dos2unix
+
+      - name: Build package
+        run: make keensnap-ipk
+
+      - name: Upload files
+        uses: actions/upload-artifact@v7
+        with:
+          name: keensnap
+          path: ./out/keensnap_*.ipk
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls ./out/keensnap_*.ipk >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  build-repository:
+    if: ${{ inputs.publish_pages }}
+    runs-on: ubuntu-22.04
+    needs: [ build-package ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Read version
+        id: version
+        uses: juliangruber/read-file-action@v1
+        with:
+          path: ./VERSION
+          trim: true
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Build repository
+        run: |
+          DEPENDENCIES=$(sed -n 's/^DEPENDENCIES := //p' Makefile | xargs)
+          rm -rf out/_pages
+          mkdir -p out/_pages/all
+          cp out/keensnap_${{ steps.version.outputs.content }}.ipk out/_pages/all/keensnap_${{ steps.version.outputs.content }}_all.ipk
+
+          echo "Package: keensnap" > out/_pages/all/Packages
+          echo "Version: ${{ steps.version.outputs.content }}" >> out/_pages/all/Packages
+          echo "Depends: $DEPENDENCIES" >> out/_pages/all/Packages
+          echo "License: MIT" >> out/_pages/all/Packages
+          echo "Section: utils" >> out/_pages/all/Packages
+          echo "Architecture: all" >> out/_pages/all/Packages
+          echo "Filename: keensnap_${{ steps.version.outputs.content }}_all.ipk" >> out/_pages/all/Packages
+          echo "Size: $(wc -c out/_pages/all/keensnap_${{ steps.version.outputs.content }}_all.ipk | awk '{print $1}')" >> out/_pages/all/Packages
+          echo "SHA256sum: $(sha256sum out/_pages/all/keensnap_${{ steps.version.outputs.content }}_all.ipk | awk '{print $1}')" >> out/_pages/all/Packages
+          echo "Description: Keenetic backup utility" >> out/_pages/all/Packages
+          echo "" >> out/_pages/all/Packages
+
+          gzip -k out/_pages/all/Packages
+
+          echo '<html><head><title>Index of /all/</title></head><body><h1>Index of /all/</h1><hr><pre>' > out/_pages/all/index.html
+          echo '<a href="../">../</a>' >> out/_pages/all/index.html
+          echo '<a href="Packages">Packages</a>' >> out/_pages/all/index.html
+          echo '<a href="Packages.gz">Packages.gz</a>' >> out/_pages/all/index.html
+          echo '<a href="keensnap_${{ steps.version.outputs.content }}_all.ipk">keensnap_${{ steps.version.outputs.content }}_all.ipk</a>' >> out/_pages/all/index.html
+          echo '</pre><hr></body></html>' >> out/_pages/all/index.html
+
+          echo '<html><head><title>Index of /</title></head><body><h1>Index of /</h1><hr><pre>' > out/_pages/index.html
+          echo '<a href="all/">all/</a>' >> out/_pages/index.html
+          echo '</pre><hr></body></html>' >> out/_pages/index.html
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./out/_pages
+
+  deploy-repository:
+    if: ${{ inputs.publish_pages }}
+    runs-on: ubuntu-22.04
+    needs: [ build-repository ]
+
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

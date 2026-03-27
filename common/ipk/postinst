@@ -1,0 +1,32 @@
+#!/bin/sh
+
+KEENSNAP_DIR="/opt/root/KeenSnap"
+SCRIPT="$KEENSNAP_DIR/keensnap.sh"
+INIT_SCRIPT="$KEENSNAP_DIR/keensnap-init"
+SCHEDULE_SCRIPT="$KEENSNAP_DIR/99-keensnap.sh"
+LEGACY_CONFIG_FILE="$KEENSNAP_DIR/config.sh"
+CONFIG_FILE="$KEENSNAP_DIR/config.conf"
+BIN_LINK="/opt/bin/keensnap"
+SCHEDULE_LINK="/opt/etc/ndm/schedule.d/99-keensnap.sh"
+
+print_message() {
+  local message=$1
+  local color=${2:-$NC}
+  local border=$(printf '%0.s-' $(seq 1 $((${#message} + 2))))
+  printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n${NC}\n"
+}
+
+mkdir -p "$KEENSNAP_DIR"
+chmod +x "$SCRIPT" 2>/dev/null
+chmod +x "$INIT_SCRIPT" 2>/dev/null
+chmod +x "$SCHEDULE_SCRIPT" 2>/dev/null
+
+if [ -f "$LEGACY_CONFIG_FILE" ]; then
+  mv -f "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
+fi
+
+ln -sf "$SCRIPT" "$BIN_LINK"
+ln -sf "$SCHEDULE_SCRIPT" "$SCHEDULE_LINK"
+
+print_message  "Пакет установлен, для конфигурации запустите keensnap"
+exit 0
