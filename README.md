@@ -21,8 +21,7 @@ opkg update && opkg install curl ca-certificates wget-ssl && curl -fsSL https://
    ```
 2. Установите opkg-репозиторий в систему
    ```
-   mkdir -p /opt/etc/opkg
-   echo "src/gz KeenSnap https://spatiumstas.github.io/KeenSnap/all" > /opt/etc/opkg/keensnap.conf
+   curl -fsSL https://raw.githubusercontent.com/spatiumstas/feedly/main/add-repo.sh | sh
    ```
 
 3. Установите пакет
@@ -69,5 +68,5 @@ opkg remove keensnap
 ```
 #### Репозитория
 ```
-rm /opt/etc/opkg/keensnap.conf
+rm /opt/etc/opkg/feedly.conf
 ```

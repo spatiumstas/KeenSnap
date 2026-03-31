@@ -713,29 +713,6 @@ packages_checker() {
   fi
 }
 
-is_ipk_installed() {
-  [ -n "$(opkg status "$REPO" 2>/dev/null)" ]
-}
-
-ensure_ipk_repo_file() {
-  if [ -f "$KEENSNAP_REPO_FILE" ]; then
-    return 0
-  fi
-  print_message "Добавляю репозиторий для установки через OPKG..." "$CYAN"
-  mkdir -p /opt/etc/opkg
-  echo "src/gz $REPO https://spatiumstas.github.io/$REPO/all" >"$KEENSNAP_REPO_FILE"
-}
-
-migrate_to_ipk_if_needed() {
-  if is_ipk_installed; then
-    return
-  fi
-  ensure_ipk_repo_file || return
-  print_message "Устанавливаю пакет через OPKG..." "$CYAN"
-  packages_checker curl tar ca-certificates wget-ssl
-  opkg update && opkg install "$REPO"
-}
-
 script_update() {
   local mode="${1:-interactive}"
   packages_checker curl tar ca-certificates wget-ssl
@@ -766,7 +743,6 @@ cleanup() {
 if [ "$1" = "script_update" ]; then
   script_update "$2"
 else
-  migrate_to_ipk_if_needed
   setup_config
   main_menu
 fi

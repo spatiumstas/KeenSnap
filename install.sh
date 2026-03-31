@@ -3,10 +3,7 @@
 printf "\033c"
 set -e
 
-echo "Устанавливаю репозиторий"
-mkdir -p /opt/etc/opkg
-echo "src/gz KeenSnap https://spatiumstas.github.io/KeenSnap/all" > /opt/etc/opkg/keensnap.conf
-
-echo "Начинаю установку"
-echo ""
+printf "\nУстанавливаю репозиторий\n\n"
+curl -fsSL https://raw.githubusercontent.com/spatiumstas/feedly/main/add-repo.sh | sh
+printf "\n\nНачинаю установку\n\n"
 opkg update && opkg install keensnap
