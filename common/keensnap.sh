@@ -438,7 +438,7 @@ setup_runtime_settings() {
   auto_update=$(get_config_raw "AUTO_UPDATE")
   delete_archive=$(get_config_raw "DELETE_LOCAL_ARCHIVE_AFTER_BACKUP")
 
-  printf "\n1. AUTO_UPDATE=$auto_update\n"
+  printf "1. AUTO_UPDATE=$auto_update\n"
   printf "2. RETAIN_ARCHIVES_DAYS=$retain_days\n"
   printf "3. DELETE_LOCAL_ARCHIVE_AFTER_BACKUP=$delete_archive\n\n"
   read -p "Выберите параметр: " setting_choice
@@ -465,13 +465,14 @@ setup_runtime_settings() {
 setup_backup_content() {
   check_config
   while true; do
-    printf "\nСостав бэкапа:\n\n"
+    printf "Состав бэкапа:\n\n"
     echo "1) BACKUP_STARTUP_CONFIG=$(get_config_bool "BACKUP_STARTUP_CONFIG" "false")"
     echo "2) BACKUP_FIRMWARE=$(get_config_bool "BACKUP_FIRMWARE" "false")"
     echo "3) BACKUP_ENTWARE=$(get_config_bool "BACKUP_ENTWARE" "false")"
     echo "4) BACKUP_WG_PRIVATE_KEY=$(get_config_bool "BACKUP_WG_PRIVATE_KEY" "false")"
     printf "0) Назад\n\n"
     read -p "Выберите параметр для переключения: " backup_choice
+    echo ""
 
     case "$backup_choice" in
       1) toggle_boolean_option "BACKUP_STARTUP_CONFIG" ;;

@@ -6,7 +6,8 @@ export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 SCRIPT_VERSION=""
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
-date="backup$(date +%Y-%m-%d_%H-%M)"
+datetime=$(date +%Y-%m-%d_%H-%M)
+date="backup$datetime"
 items=""
 statuses=""
 (
@@ -14,7 +15,6 @@ statuses=""
   start)
     if [ -n "$2" ]; then
       SCHEDULE="$2"
-      echo "Запуск KeenSnap (расписание: $SCHEDULE)"
 
       log() {
         local message="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
@@ -119,8 +119,7 @@ statuses=""
         case "$request_type" in
           "message")
             local payload="$1"
-            local curl_output
-            curl_output=$(curl_with_network -s -w "\n%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -H "Content-Type: application/json" -d "$payload")
+            local curl_output=$(curl_with_network -s -w "\n%{http_code}" -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -H "Content-Type: application/json" -d "$payload")
             response=$(echo "$curl_output" | tail -n 1)
             response_body=$(echo "$curl_output" | sed '$d')
             ;;
@@ -129,8 +128,7 @@ statuses=""
             local file_path="$2"
             local caption="$3"
             local topic_id="$4"
-            local curl_output
-            curl_output=$(curl_with_network -s -w "\n%{http_code}" \
+            local curl_output=$(curl_with_network -s -w "\n%{http_code}" \
               -F "chat_id=$chat_id" \
               -F "document=@$file_path" \
               -F "caption=$caption" \
@@ -331,8 +329,7 @@ statuses=""
 
         local caption="$1"
         local file_path="$2"
-        local escaped_caption
-        escaped_caption=$(echo "$caption" | sed 's/[][*_`]/\\&/g')
+        local escaped_caption=$(echo "$caption" | sed 's/[][*_`]/\\&/g')
 
         if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
           local payload
@@ -348,8 +345,7 @@ statuses=""
           return $?
         else
           local max_size=$((49 * 1024 * 1024))
-          local archive_size
-          archive_size=$(wc -c <"$file_path")
+          local archive_size=$(wc -c <"$file_path")
 
           if [ "$archive_size" -le "$max_size" ]; then
             log "Отправка архива: $file_path"
@@ -361,7 +357,7 @@ statuses=""
             fi
           else
             package_check "coreutils-split"
-            log "Архив превышает 49МБ, разбиваю на части..."
+            log "Архив превышает 49МБ, разбиваем на части..."
             split -b "$max_size" -d --numeric-suffixes=001 --suffix-length=3 "$file_path" "${file_path}."
 
             local part_files=""
@@ -380,7 +376,7 @@ statuses=""
             }
 
             for part_file in $part_files; do
-              local part_caption="[[Часть $part_number из $total_parts]]"$'\n'"$escaped_caption"
+              local part_caption="[🧩 [Часть $part_number из $total_parts]]"$'\n\n'"$escaped_caption"
               log "Отправка части: $part_file"
               
               if send_with_retry "document" "" "Ошибка отправки части $part_file" "$chat_id" "$part_file" "$part_caption" "$topic_id"; then
@@ -549,7 +545,7 @@ DEVICE="$DEVICE"
 DEVICE_ID="$DEVICE_ID"
 FW_VERSION="$FW_VERSION"
 FW_VERSION_TITLE="$FW_VERSION_TITLE"
-DATE="$date"
+DATE="$datetime"
 UPLOAD_METHOD="$UPLOAD_METHOD"
 EOF
           archive_path="$SELECTED_DRIVE/${DEVICE_ID}_${FW_VERSION}_$date.tar.gz"
@@ -567,7 +563,8 @@ EOF
           return 1
         fi
 
-        local report="Бэкап: $DEVICE ($DEVICE_ID)"$'\n'"Версия ОС: $FW_VERSION_TITLE"$'\n\n'
+        local archive_size=$(wc -c <"$archive_path" | awk '{if ($1 >= 1048576) printf "%.1fМБ", $1/1048576; else if ($1 >= 1024) printf "%.1fКБ", $1/1024; else printf "%dБ", $1}')
+        local report="🌐 Бэкап: $DEVICE ($DEVICE_ID)"$'\n'"⚙️ Версия: $FW_VERSION_TITLE"$'\n'"💾 Размер: $archive_size"$'\n'"📅 Дата: $datetime"$'\n\n'
         local i=1
         for item in $items; do
           local status_value=$(echo $statuses | cut -d' ' -f$i)
@@ -578,6 +575,7 @@ EOF
           fi
           i=$((i + 1))
         done
+        [ -n "$HASHTAG" ] && report="$report"$'\n'"$HASHTAG"
 
         if send_archive_by_method "$report" "$archive_path"; then
           if [ "$DELETE_LOCAL_ARCHIVE_AFTER_BACKUP" = "true" ]; then
