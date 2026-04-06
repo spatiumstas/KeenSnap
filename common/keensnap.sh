@@ -2,7 +2,9 @@
 trap cleanup HUP INT TERM EXIT
 CONFIG_FILE="/opt/root/KeenSnap/config.conf"
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
-export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
+SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
+export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 RED='\033[1;31m'
 GREEN='\033[1;32m'
 CYAN='\033[0;36m'
@@ -112,6 +114,10 @@ rci_parse() {
     "http://localhost:79/rci/"
 }
 
+ndmc_cli() {
+  LD_LIBRARY_PATH="$SYSTEM_LD_LIBRARY_PATH" ndmc -c "$@"
+}
+
 get_device() {
   rci_request "show/version" | grep -o '"device": "[^"]*"' | cut -d'"' -f4 2>/dev/null
 }
@@ -128,7 +134,7 @@ select_schedule() {
   message=$1
   schedules=""
   index=1
-  schedule_output=$(ndmc -c show sc schedule)
+  schedule_output=$(ndmc_cli show sc schedule)
 
   while IFS= read -r line; do
     if echo "$line" | grep -q "^\s*name:" && ! echo "$line" | grep -q "config"; then

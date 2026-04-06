@@ -2,7 +2,9 @@
 
 CONFIG_FILE="/opt/root/KeenSnap/config.conf"
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
-export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
+SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
+export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 SCRIPT_VERSION=""
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
@@ -46,6 +48,10 @@ statuses=""
           "http://localhost:79/rci/"
       }
 
+      ndmc_cli() {
+        LD_LIBRARY_PATH="$SYSTEM_LD_LIBRARY_PATH" ndmc -c "$@"
+      }
+      
       get_device_info() {
         version_output=$(rci_request "show/version" 2>/dev/null)
         DEVICE=$(echo "$version_output" | grep -o '"device": "[^"]*"' | cut -d'"' -f4 2>/dev/null)
@@ -266,8 +272,15 @@ statuses=""
           return 0
         fi
 
+        log "Удаление старого архива:"
+        echo "$old_list"
+
         for old_file in $old_list; do
-          rm -f "$old_file" && old_count=$((old_count + 1))
+          if rm -f "$old_file"; then
+            old_count=$((old_count + 1))
+          else
+            error "Не удалось удалить архив: $old_file"
+          fi
         done
 
         if [ "$old_count" -gt 0 ]; then
@@ -600,7 +613,7 @@ EOF
         log "Запуск скрипта для расписания $SCHEDULE"
         local drive_uuid=$(basename "$SELECTED_DRIVE")
         local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $4}')
-        if [ -z "$SELECTED_DRIVE" ] || ([ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc -c show media 2>/dev/null | grep -q "uuid: $device_uuid"); then
+        if [ -z "$SELECTED_DRIVE" ] || ([ "$SELECTED_DRIVE" != "/storage" ] && ! ndmc_cli show media 2>/dev/null | grep -q "uuid: $device_uuid"); then
           drive_name=$(basename "$SELECTED_DRIVE")
           error "Выбранный накопитель $drive_name не подключён"
           if has_upload_method "Telegram"; then
