@@ -2,9 +2,6 @@
 
 CONFIG_FILE="/opt/root/KeenSnap/config.conf"
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
-SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
-export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 SCRIPT_VERSION=""
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
@@ -49,7 +46,8 @@ statuses=""
       }
 
       ndmc_cli() {
-        LD_LIBRARY_PATH="$SYSTEM_LD_LIBRARY_PATH" ndmc -c "$@"
+        unset LD_LIBRARY_PATH
+        ndmc -c "$@"
       }
       
       get_device_info() {
@@ -157,21 +155,12 @@ statuses=""
         local metadata
         local response
         local file_id
+        local retry_count=0
+        local max_retries=3
+        local retry_delay=5
 
         if [ -z "$GD_CLIENT_ID" ] || [ -z "$GD_CLIENT_SECRET" ] || [ -z "$GD_REFRESH_TOKEN" ]; then
           error "Google Drive не настроен: заполните CLIENT_ID/CLIENT_SECRET/REFRESH_TOKEN"
-          return 1
-        fi
-
-        token_response=$(curl_with_network -s -X POST "https://oauth2.googleapis.com/token" \
-          -d "client_id=$GD_CLIENT_ID" \
-          -d "client_secret=$GD_CLIENT_SECRET" \
-          -d "refresh_token=$GD_REFRESH_TOKEN" \
-          -d "grant_type=refresh_token")
-        access_token=$(json_extract_value "$token_response" "access_token")
-
-        if [ -z "$access_token" ]; then
-          error "Не удалось получить Google Drive access_token"
           return 1
         fi
 
@@ -182,18 +171,101 @@ statuses=""
         fi
         metadata="$metadata}"
 
-        response=$(curl_with_network -s -X POST "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart" \
-          -H "Authorization: Bearer $access_token" \
-          -F "metadata=$metadata;type=application/json" \
-          -F "file=@$file_path;type=application/gzip")
+        while [ $retry_count -lt $max_retries ]; do
+          token_response=$(curl_with_network -s -X POST "https://oauth2.googleapis.com/token" \
+            -d "client_id=$GD_CLIENT_ID" \
+            -d "client_secret=$GD_CLIENT_SECRET" \
+            -d "refresh_token=$GD_REFRESH_TOKEN" \
+            -d "grant_type=refresh_token")
+          access_token=$(json_extract_value "$token_response" "access_token")
 
-        file_id=$(json_extract_value "$response" "id")
-        if [ -n "$file_id" ]; then
-          success "Архив загружен в Google Drive"
-          return 0
+          if [ -z "$access_token" ]; then
+            error "Не удалось получить Google Drive access_token"
+          else
+            response=$(curl_with_network -s -X POST "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart" \
+              -H "Authorization: Bearer $access_token" \
+              -F "metadata=$metadata;type=application/json" \
+              -F "file=@$file_path;type=application/gzip")
+
+            file_id=$(json_extract_value "$response" "id")
+            if [ -n "$file_id" ]; then
+              success "Архив загружен в Google Drive"
+              return 0
+            fi
+
+            error "Ошибка загрузки в Google Drive. Ответ: $response"
+          fi
+
+          retry_count=$((retry_count + 1))
+          if [ $retry_count -lt $max_retries ]; then
+            log "Повторная попытка загрузки в Google Drive... (попытка $retry_count из $max_retries)"
+            sleep $retry_delay
+          fi
+        done
+
+        return 1
+      }
+
+      send_to_webdav() {
+        local file_path="$1"
+        local file_name
+        local target_url
+        local curl_output
+        local curl_rc
+        local response_code
+        local response_body
+        local retry_count=0
+        local max_retries=3
+        local retry_delay=5
+        local insecure_arg=""
+
+        if [ -z "$WD_URL" ]; then
+          error "WebDAV не настроен: заполните WD_URL"
+          return 1
         fi
 
-        error "Ошибка загрузки в Google Drive. Ответ: $response"
+        [ "$WD_INSECURE" = "true" ] && insecure_arg="-k"
+
+        file_name=$(basename "$file_path")
+        case "$WD_URL" in
+          */) target_url="${WD_URL}${file_name}" ;;
+          *) target_url="$WD_URL" ;;
+        esac
+
+        log "Отправка архива в WebDAV: $target_url"
+
+        while [ $retry_count -lt $max_retries ]; do
+          if [ -n "$WD_USERNAME" ] || [ -n "$WD_PASSWORD" ]; then
+            curl_output=$(curl_with_network -sS -L --anyauth $insecure_arg -w "\n%{http_code}" -u "$WD_USERNAME:$WD_PASSWORD" -T "$file_path" "$target_url" 2>&1)
+          else
+            curl_output=$(curl_with_network -sS -L $insecure_arg -w "\n%{http_code}" -T "$file_path" "$target_url" 2>&1)
+          fi
+          curl_rc=$?
+
+          response_code=$(echo "$curl_output" | tail -n 1)
+          response_body=$(echo "$curl_output" | sed '$d')
+
+          if [ $curl_rc -eq 0 ]; then
+            case "$response_code" in
+              200|201|204)
+                success "Архив загружен в WebDAV"
+                return 0
+                ;;
+              *)
+                error "Ошибка загрузки в WebDAV (HTTP $response_code). Ответ: $response_body"
+                ;;
+            esac
+          else
+            error "Ошибка curl при загрузке в WebDAV (code $curl_rc). Ответ: $response_body"
+          fi
+
+          retry_count=$((retry_count + 1))
+          if [ $retry_count -lt $max_retries ]; then
+            log "Повторная попытка загрузки в WebDAV... (попытка $retry_count из $max_retries)"
+            sleep $retry_delay
+          fi
+        done
+
         return 1
       }
 
@@ -224,6 +296,13 @@ statuses=""
                 sent_count=$((sent_count + 1))
               else
                 error "Ошибка отправки в Google Drive"
+              fi
+              ;;
+            WebDAV)
+              if send_to_webdav "$archive_path"; then
+                sent_count=$((sent_count + 1))
+              else
+                error "Ошибка отправки в WebDAV"
               fi
               ;;
             *)

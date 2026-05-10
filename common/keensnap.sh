@@ -2,9 +2,6 @@
 trap cleanup HUP INT TERM EXIT
 CONFIG_FILE="/opt/root/KeenSnap/config.conf"
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
-SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
-export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 RED='\033[1;31m'
 GREEN='\033[1;32m'
 CYAN='\033[0;36m'
@@ -22,11 +19,6 @@ PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 KEENSNAP_REPO_FILE="/opt/etc/opkg/keensnap.conf"
 SCRIPT_VERSION=""
 
-format_upload_methods() {
-  local methods="$1"
-  [ -n "$methods" ] && echo "$methods" || echo "Telegram"
-}
-
 print_menu() {
   printf "\033c"
   printf "${CYAN}"
@@ -42,18 +34,19 @@ EOF
   if [ ! -f $KEENSNAP_DIR/$SNAPD ]; then
     printf "${RED}Конфигурация не настроена${NC}\n\n"
   else
-    current_upload_methods=$(format_upload_methods "$(get_config_value "UPLOAD_METHOD")")
+    current_upload_methods=$(get_config_value "UPLOAD_METHOD")
+    current_backup_content=$(get_backup_content)
     printf "${CYAN}Модель:         ${NC}%s\n" "$(get_device) ($(get_hw_id)) | $(get_fw_version)"
     printf "${CYAN}Накопитель:     ${NC}%s\n" "$SELECTED_DRIVE"
     printf "${CYAN}Отправка:       ${NC}%s\n" "$current_upload_methods"
+    printf "${CYAN}Состав:         ${NC}%s\n" "$current_backup_content"
     printf "${CYAN}Версия:         ${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
   fi
   echo "1. Запустить бэкап"
   echo "2. Параметры"
   echo "3. Показать конфиг"
   echo "4. Показать логи"
-  printf "\n88. Удалить скрипт\n"  
-  echo "99. Обновить скрипт"
+  printf "\n99. Обновить скрипт\n"  
   echo "00. Выход"
   echo ""
 }
@@ -76,7 +69,6 @@ main_menu() {
     2) settings_menu ;;
     3) show_config ;;
     4) show_logs ;;
-    88) remove_script ;;
     99) script_update "interactive" ;;
     00) exit 0 ;;
     *)
@@ -115,7 +107,8 @@ rci_parse() {
 }
 
 ndmc_cli() {
-  LD_LIBRARY_PATH="$SYSTEM_LD_LIBRARY_PATH" ndmc -c "$@"
+  unset LD_LIBRARY_PATH
+  ndmc -c "$@"
 }
 
 get_device() {
@@ -128,6 +121,25 @@ get_fw_version() {
 
 get_hw_id() {
   rci_request "show/version" | grep -o '"hw_id": "[^"]*"' | cut -d'"' -f4 2>/dev/null
+}
+
+get_backup_content() {
+  local selected=""
+  local entry
+  local key
+  local label
+
+  for entry in \
+    "BACKUP_STARTUP_CONFIG:Startup-Config" \
+    "BACKUP_FIRMWARE:Firmware" \
+    "BACKUP_ENTWARE:Entware" \
+    "BACKUP_WG_PRIVATE_KEY:WireGuard-Private-Key"; do
+    key=${entry%%:*}
+    label=${entry#*:}
+    [ "$(get_config_bool "$key" "false")" = "true" ] && selected="${selected}${selected:+, }$label"
+  done
+
+  [ -n "$selected" ] && echo "$selected"
 }
 
 select_schedule() {
@@ -170,10 +182,11 @@ EOF
   if [ -z "$schedules" ]; then
     print_message "Расписания не найдены" "$RED"
   else
-
+    echo "0. Назад"
     echo ""
     read -p "$message " choice
     choice=$(echo "$choice" | tr -d ' \n\r')
+    [ "$choice" = "0" ] && return 1
 
     SCHEDULE_SELECTED=$(echo "$schedules" | tr ' ' '\n' | grep "^$choice:" | cut -d ':' -f2)
     if [ -z "$SCHEDULE_SELECTED" ]; then
@@ -327,20 +340,23 @@ show_logs() {
 
 setup_upload_method() {
   check_config
-  current_method=$(get_config_value "UPLOAD_METHOD")
-  [ -z "$current_method" ] && current_method="Telegram"
-  printf "Текущий способ: %s\n\n" "$(format_upload_methods "$current_method")"
+  printf "Текущий способ: %s\n\n" "$(get_config_value "UPLOAD_METHOD")"
   echo "Введите номера через пробел (допустимо несколько):"
   echo "1. Telegram"
   echo "2. Google Drive"
+  echo "3. WebDAV"
+  echo "0. Назад"
   echo ""
   read -p "Выбор: " upload_choice
+  [ -z "$upload_choice" ] && return 0
+  [ "$upload_choice" = "0" ] && return 0
 
   local selected_methods=""
   for choice in $upload_choice; do
     case "$choice" in
       1) selected_methods="$selected_methods Telegram" ;;
       2) selected_methods="$selected_methods GDrive" ;;
+      3) selected_methods="$selected_methods WebDAV" ;;
     esac
   done
 
@@ -438,6 +454,59 @@ setup_google_drive_settings() {
   print_message "Параметры Google Drive обновлены" "$GREEN"
 }
 
+setup_webdav_settings() {
+  check_config
+  wd_url=$(get_config_value "WD_URL")
+  wd_username=$(get_config_value "WD_USERNAME")
+  wd_password=$(get_config_value "WD_PASSWORD")
+  wd_insecure=$(get_config_bool "WD_INSECURE" "false")
+     echo "Введите 0 для возврата назад"
+
+  read -p "WD_URL (полный путь, Enter = оставить, '-' = очистить): " value
+     [ "$value" = "0" ] && return 0
+  if [ "$value" = "-" ]; then
+    wd_url=""
+  elif [ -n "$value" ]; then
+    wd_url="$value"
+  fi
+
+  read -p "WD_USERNAME (Enter = оставить, '-' = очистить): " value
+     [ "$value" = "0" ] && return 0
+  if [ "$value" = "-" ]; then
+    wd_username=""
+  elif [ -n "$value" ]; then
+    wd_username="$value"
+  fi
+
+  read -p "WD_PASSWORD (Enter = оставить, '-' = очистить): " value
+     [ "$value" = "0" ] && return 0
+  if [ "$value" = "-" ]; then
+    wd_password=""
+  elif [ -n "$value" ]; then
+    wd_password="$value"
+  fi
+
+  read -p "WD_INSECURE (true/false, Enter = оставить): " value
+     [ "$value" = "0" ] && return 0
+  if [ -n "$value" ]; then
+    case "$value" in
+      true|false) wd_insecure="$value" ;;
+      *) print_message "Допустимо true/false" "$RED" ;;
+    esac
+  fi
+
+  set_config_value "WD_URL" "$wd_url"
+  set_config_value "WD_USERNAME" "$wd_username"
+  set_config_value "WD_PASSWORD" "$wd_password"
+  if grep -q "^WD_INSECURE=" "$CONFIG_FILE" 2>/dev/null; then
+    sed -i "s|^WD_INSECURE=.*|WD_INSECURE=$wd_insecure|" "$CONFIG_FILE"
+  else
+    echo "WD_INSECURE=$wd_insecure" >>"$CONFIG_FILE"
+  fi
+  dos2unix "$CONFIG_FILE"
+  print_message "Параметры WebDAV обновлены" "$GREEN"
+}
+
 setup_runtime_settings() {
   check_config
   retain_days=$(get_config_raw "RETAIN_ARCHIVES_DAYS")
@@ -447,9 +516,13 @@ setup_runtime_settings() {
   printf "1. AUTO_UPDATE=$auto_update\n"
   printf "2. RETAIN_ARCHIVES_DAYS=$retain_days\n"
   printf "3. DELETE_LOCAL_ARCHIVE_AFTER_BACKUP=$delete_archive\n\n"
+  printf "0. Назад\n\n"
   read -p "Выберите параметр: " setting_choice
 
   case "$setting_choice" in
+    0)
+      return 0
+      ;;
     1)
       toggle_boolean_option "AUTO_UPDATE"
       ;;
@@ -501,8 +574,9 @@ settings_menu() {
     echo "2. Способ отправки"
     echo "3. Telegram"
     echo "4. Google Drive"
-    echo "5. Состав бэкапа"
-    echo "6. Автоудаление и обновление"
+    echo "5. WebDAV"
+    echo "6. Состав бэкапа"
+    echo "7. Автоудаление и обновление"
     echo "0. Назад"
     echo ""
     read -p "Выберите действие: " action
@@ -512,8 +586,9 @@ settings_menu() {
       2) setup_upload_method ;;
       3) setup_telegram_settings ;;
       4) setup_google_drive_settings ;;
-      5) setup_backup_content ;;
-      6) setup_runtime_settings ;;
+      5) setup_webdav_settings ;;
+      6) setup_backup_content ;;
+      7) setup_runtime_settings ;;
       0) break ;;
       *) echo "Неверный выбор"; sleep 1 ;;
     esac
@@ -602,7 +677,7 @@ select_drive() {
     print_message "Не удалось получить список накопителей" "$RED"
     return 1
   fi
-
+  echo "00. Назад"
   echo "0. Встроенное хранилище (может не хватить места) $message2"
 
   while IFS= read -r line; do
@@ -657,7 +732,9 @@ EOF
   read -p "$message " choice
   choice=$(echo "$choice" | tr -d ' \n\r')
   echo ""
-  if [ "$choice" = "0" ]; then
+  if [ "$choice" = "00" ]; then
+    return 1
+  elif [ "$choice" = "0" ]; then
     selected_drive="/storage"
   else
       selected_drive=$(printf '%s\n' "$uuids" | sed -n "$((choice))p")
@@ -695,16 +772,6 @@ EOF
       fi
     done
   fi
-}
-
-remove_script() {
-  echo "Удаляю все файлы и выхожу из скрипта..."
-  rm -rf "$KEENSNAP_DIR" 2>/dev/null
-  rm -f "$PATH_SCHEDULE" 2>/dev/null
-  rm -f "$OPT_DIR/bin/$REPO" 2>/dev/null
-
-  print_message "Успешно удалено" "$GREEN"
-  cleanup
 }
 
 packages_checker() {
