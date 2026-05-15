@@ -232,13 +232,26 @@ get_config_number() {
   fi
 }
 
+append_config_line() {
+  local line="$1"
+  [ -f "$CONFIG_FILE" ] || : >"$CONFIG_FILE"
+
+  if [ -s "$CONFIG_FILE" ]; then
+    local last_char
+    last_char=$(tail -c 1 "$CONFIG_FILE" 2>/dev/null)
+    [ -n "$last_char" ] && printf '\n' >>"$CONFIG_FILE"
+  fi
+
+  printf '%s\n' "$line" >>"$CONFIG_FILE"
+}
+
 set_config_value() {
   local key="$1"
   local value="$2"
   if grep -q "^$key=" "$CONFIG_FILE" 2>/dev/null; then
     sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_FILE"
   else
-    echo "$key=\"$value\"" >>"$CONFIG_FILE"
+    append_config_line "$key=\"$value\""
   fi
 }
 
@@ -248,7 +261,7 @@ set_config_number() {
   if grep -q "^$key=" "$CONFIG_FILE" 2>/dev/null; then
     sed -i "s|^$key=.*|$key=$value|" "$CONFIG_FILE"
   else
-    echo "$key=$value" >>"$CONFIG_FILE"
+    append_config_line "$key=$value"
   fi
 }
 
@@ -309,13 +322,13 @@ toggle_boolean_option() {
     if grep -q "^$key=" "$CONFIG_FILE" 2>/dev/null; then
       sed -i "s/^$key=.*/$key=false/" "$CONFIG_FILE"
     else
-      echo "$key=false" >>"$CONFIG_FILE"
+      append_config_line "$key=false"
     fi
   else
     if grep -q "^$key=" "$CONFIG_FILE" 2>/dev/null; then
       sed -i "s/^$key=.*/$key=true/" "$CONFIG_FILE"
     else
-      echo "$key=true" >>"$CONFIG_FILE"
+      append_config_line "$key=true"
     fi
   fi
 }
@@ -501,7 +514,7 @@ setup_webdav_settings() {
   if grep -q "^WD_INSECURE=" "$CONFIG_FILE" 2>/dev/null; then
     sed -i "s|^WD_INSECURE=.*|WD_INSECURE=$wd_insecure|" "$CONFIG_FILE"
   else
-    echo "WD_INSECURE=$wd_insecure" >>"$CONFIG_FILE"
+    append_config_line "WD_INSECURE=$wd_insecure"
   fi
   dos2unix "$CONFIG_FILE"
   print_message "Параметры WebDAV обновлены" "$GREEN"
@@ -515,7 +528,8 @@ setup_runtime_settings() {
 
   printf "1. AUTO_UPDATE=$auto_update\n"
   printf "2. RETAIN_ARCHIVES_DAYS=$retain_days\n"
-  printf "3. DELETE_LOCAL_ARCHIVE_AFTER_BACKUP=$delete_archive\n\n"
+  printf "3. DELETE_LOCAL_ARCHIVE_AFTER_BACKUP=$delete_archive\n"
+  printf "4. ARCHIVE_PASSWORD=%s\n\n" "$(get_config_value "ARCHIVE_PASSWORD")"
   printf "0. Назад\n\n"
   read -p "Выберите параметр: " setting_choice
 
@@ -534,6 +548,14 @@ setup_runtime_settings() {
       ;;
     3)
       toggle_boolean_option "DELETE_LOCAL_ARCHIVE_AFTER_BACKUP"
+      ;;
+    4)
+      read -p "Введите пароль для архива (Enter = оставить, '-' = очистить): " value
+      if [ "$value" = "-" ]; then
+        set_config_value "ARCHIVE_PASSWORD" ""
+      elif [ -n "$value" ]; then
+        set_config_value "ARCHIVE_PASSWORD" "$value"
+      fi
       ;;
   esac
 
@@ -576,7 +598,7 @@ settings_menu() {
     echo "4. Google Drive"
     echo "5. WebDAV"
     echo "6. Состав бэкапа"
-    echo "7. Автоудаление и обновление"
+    echo "7. Автоудаление, обновления, пароль"
     echo "0. Назад"
     echo ""
     read -p "Выберите действие: " action
@@ -790,7 +812,6 @@ packages_checker() {
 script_update() {
   local mode="${1:-interactive}"
   packages_checker curl tar ca-certificates wget-ssl
-  ensure_ipk_repo_file
   if opkg update && opkg install "$REPO"; then
     if [ "$mode" = "silent" ]; then
       logger -p notice -t KeenSnap "Пакет обновлён в silent-режиме"
