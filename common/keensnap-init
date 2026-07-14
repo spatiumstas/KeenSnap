@@ -189,7 +189,7 @@ statuses=""
         metadata="$metadata}"
 
         while [ $retry_count -lt $max_retries ]; do
-          token_response=$(curl_with_network -s -X POST "https://oauth2.googleapis.com/token" \
+          token_response=$(curl -s -X POST "https://oauth2.googleapis.com/token" \
             -d "client_id=$GD_CLIENT_ID" \
             -d "client_secret=$GD_CLIENT_SECRET" \
             -d "refresh_token=$GD_REFRESH_TOKEN" \
@@ -199,7 +199,7 @@ statuses=""
           if [ -z "$access_token" ]; then
             error "Не удалось получить Google Drive access_token"
           else
-            response=$(curl_with_network -s -X POST "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart" \
+            response=$(curl -s -X POST "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart" \
               -H "Authorization: Bearer $access_token" \
               -F "metadata=$metadata;type=application/json" \
               -F "file=@$file_path;type=application/gzip")
@@ -253,9 +253,9 @@ statuses=""
 
         while [ $retry_count -lt $max_retries ]; do
           if [ -n "$WD_USERNAME" ] || [ -n "$WD_PASSWORD" ]; then
-            curl_output=$(curl_with_network -sS -L --anyauth $insecure_arg -w "\n%{http_code}" -u "$WD_USERNAME:$WD_PASSWORD" -T "$file_path" "$target_url" 2>&1)
+            curl_output=$(curl -sS -L --anyauth $insecure_arg -w "\n%{http_code}" -u "$WD_USERNAME:$WD_PASSWORD" -T "$file_path" "$target_url" 2>&1)
           else
-            curl_output=$(curl_with_network -sS -L $insecure_arg -w "\n%{http_code}" -T "$file_path" "$target_url" 2>&1)
+            curl_output=$(curl -sS -L $insecure_arg -w "\n%{http_code}" -T "$file_path" "$target_url" 2>&1)
           fi
           curl_rc=$?
 
