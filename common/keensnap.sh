@@ -17,6 +17,8 @@ SNAPD="keensnap-init"
 PATH_SCHEDULE="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 KEENSNAP_REPO_FILE="/opt/etc/opkg/keensnap.conf"
 SCRIPT_VERSION=""
+KEENSNAP_USERAGENT="KeenSnap/$SCRIPT_VERSION"
+RCI_URL="http://127.0.0.1:79/rci"
 
 print_menu() {
   printf "\033c"
@@ -96,9 +98,19 @@ exit_function() {
   exec "$KEENSNAP_DIR/$SCRIPT"
 }
 
+rci_curl() {
+  local rci_token
+  rci_token=$(get_config_value "RCI_TOKEN")
+  if [ -n "$rci_token" ]; then
+    curl -A "$KEENSNAP_USERAGENT" -H "X-Ndma-Tkn: $rci_token" "$@"
+  else
+    curl -A "$KEENSNAP_USERAGENT" "$@"
+  fi
+}
+
 rci_request() {
   local endpoint="$1"
-  curl -s "http://localhost:79/rci/$endpoint"
+  rci_curl -s "$RCI_URL/$endpoint"
 }
 
 ndmc_cli() {
@@ -523,6 +535,7 @@ setup_runtime_settings() {
     printf "3. DELETE_LOCAL_ARCHIVE_AFTER_BACKUP=%s\n" "$delete_archive"
     printf "4. ARCHIVE_PASSWORD=%s\n" "$(get_config_value "ARCHIVE_PASSWORD")"
     printf "5. ENTWARE_EXCLUDE=%s\n" "$(get_config_value "ENTWARE_EXCLUDE")"
+    printf "6. RCI_TOKEN=%s\n" "$(get_config_value "RCI_TOKEN")"
     printf "00. Назад\n\n"
     read -p "Выберите параметр: " setting_choice
 
@@ -553,6 +566,15 @@ setup_runtime_settings() {
           set_config_value "ENTWARE_EXCLUDE" ""
         elif [ -n "$value" ]; then
           set_config_value "ENTWARE_EXCLUDE" "$value"
+        fi
+        ;;
+      6)
+        echo ""
+        read -p "Введите RCI токен ( Enter = оставить, '-' = очистить): " value
+        if [ "$value" = "-" ]; then
+          set_config_value "RCI_TOKEN" ""
+        elif [ -n "$value" ]; then
+          set_config_value "RCI_TOKEN" "$value"
         fi
         ;;
       *) echo "Неверный выбор"; sleep 1 ;;
@@ -635,7 +657,7 @@ settings_menu() {
     echo "4. Google Drive"
     echo "5. WebDAV"
     echo "6. Состав бэкапа"
-    echo "7. Автоудаление, обновления, пароль"
+    echo "7. Автоудаление, обновления, пароль, токен"
     echo "00. Назад"
     echo ""
     read -p "Выберите действие: " action

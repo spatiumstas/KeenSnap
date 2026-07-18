@@ -25,6 +25,8 @@ if [ -f "$LEGACY_CONFIG_FILE" ]; then
   mv -f "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
 fi
 
+chmod 600 "$CONFIG_FILE" 2>/dev/null
+
 ln -sf "$SCRIPT" "$BIN_LINK"
 ln -sf "$SCHEDULE_SCRIPT" "$SCHEDULE_LINK"
 

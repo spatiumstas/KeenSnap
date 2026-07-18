@@ -3,6 +3,8 @@
 CONFIG_FILE="/opt/root/KeenSnap/config.conf"
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 SCRIPT_VERSION=""
+USERAGENT="KeenSnap/$SCRIPT_VERSION"
+RCI_URL="http://127.0.0.1:79/rci"
 PATH_SNAPD="/opt/etc/ndm/schedule.d/99-keensnap.sh"
 PROJECT_URL="https://github.com/spatiumstas/keensnap"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/keensnap/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
@@ -44,16 +46,40 @@ statuses=""
         logger -p notice -t KeenSnap "$*"
       }
 
+      rci_curl() {
+        if [ -n "${RCI_TOKEN:-}" ]; then
+          curl -A "$USERAGENT" -H "X-Ndma-Tkn: $RCI_TOKEN" "$@"
+        else
+          curl -A "$USERAGENT" "$@"
+        fi
+      }
+
       rci_request() {
         local endpoint="$1"
-        curl -s "http://localhost:79/rci/$endpoint"
+        rci_curl -s "$RCI_URL/$endpoint"
       }
 
       rci_parse() {
         local command="$1"
-        curl -fsS -H "Content-Type: application/json" \
+        rci_curl -fsS -H "Content-Type: application/json" \
           -d "[{\"parse\":\"$command\"}]" \
-          "http://localhost:79/rci/"
+          "$RCI_URL/"
+      }
+
+      check_rci_token() {
+        [ -z "${RCI_TOKEN:-}" ] && return 0
+
+        if rci_curl -fsS -o /dev/null \
+          -H "Accept: application/json" \
+          "$RCI_URL/whoami"; then
+          return 0
+        fi
+
+        error "Токен RCI недействителен или отозван. Бэкап остановлен."
+        if has_upload_method "Telegram"; then
+          send_to_telegram "$EMOJI_FAIL Токен RCI недействителен или отозван. Бэкап остановлен." ""
+        fi
+        return 1
       }
 
       ndmc_cli() {
@@ -730,6 +756,7 @@ EOF
 
       main() {
         clean_log "$LOG_FILE"
+        check_rci_token || return 1
         get_device_info
         log "Запуск скрипта для расписания $SCHEDULE"
         local drive_uuid=$(basename "$SELECTED_DRIVE")
@@ -783,7 +810,7 @@ EOF
         fi
       }
 
-      main "$SCHEDULE"
+      main "$SCHEDULE" || exit 1
       check_update
     fi
     ;;
