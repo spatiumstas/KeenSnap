@@ -61,9 +61,29 @@ statuses=""
 
       rci_parse() {
         local command="$1"
-        rci_curl -fsS -H "Content-Type: application/json" \
+        local error_message="${2:-Ошибка RCI}"
+        local response
+
+        if ! response=$(rci_curl -fsS -H "Content-Type: application/json" \
           -d "[{\"parse\":\"$command\"}]" \
-          "$RCI_URL/"
+          "$RCI_URL/" 2>&1); then
+          rci_handle_error "$error_message" "$response"
+          return 1
+        fi
+
+        if ! rci_response_ok "$response"; then
+          rci_handle_error "$error_message" "$response"
+          return 1
+        fi
+      }
+
+      rci_response_ok() {
+        printf '%s' "$1" | jq -e '[.. | objects | select(.status? == "error")] | length == 0' >/dev/null 2>&1
+      }
+
+      rci_handle_error() {
+        error "$1"
+        printf '%s\n' "$2"
       }
 
       check_rci_token() {
@@ -531,12 +551,13 @@ statuses=""
         local date="$2"
         local device_uuid=""
         local subfolder=""
-        local rel_path=""
+        local rel_path="$date"
         local ndmc_path=""
 
         if [ "$selected_drive" = "/storage" ]; then
-          rel_path="$date"
           ndmc_path="storage:$rel_path"
+        elif [ "$selected_drive" = "/tmp" ]; then
+          ndmc_path="temp:/$rel_path"
         else
           device_uuid=$(echo "$selected_drive" | awk -F'/' '{print $4}')
           if [ "${selected_drive#*/tmp/mnt/$device_uuid/}" != "$selected_drive" ]; then
@@ -545,8 +566,6 @@ statuses=""
           fi
           if [ -n "$subfolder" ]; then
             rel_path="$subfolder/$date"
-          else
-            rel_path="$date"
           fi
           ndmc_path="$device_uuid:$rel_path"
         fi
@@ -563,12 +582,9 @@ statuses=""
           local ndmc_path="${paths_out%%|*}"
           local rel_path="${paths_out##*|}"
           local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
-          rci_parse "copy $item_name $backup_file" >/dev/null 2>&1
-          if [ $? -eq 0 ]; then
+          if rci_parse "copy $item_name $backup_file" "Ошибка при сохранении $item_name"; then
             success "$item_name сохранён"
             success=0
-          else
-            error "Ошибка при сохранении $item_name"
           fi
         fi
         items="$items $item_name"
@@ -595,7 +611,7 @@ statuses=""
           log_operation=$(echo "$tar_output" | tail -n 2)
 
           if echo "$log_operation" | grep -iq "error\|no space left on device"; then
-            log "Ошибка при сохранении $item_name:" "$RED"
+            error "Ошибка при сохранении $item_name:" "$RED"
             echo "$log_operation"
           else
             success "$item_name сохранён"
@@ -636,12 +652,9 @@ statuses=""
           local ndmc_path="${paths_out%%|*}"
           local rel_path="${paths_out##*|}"
           local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
-          rci_parse "copy flash:/$item_name $backup_file" >/dev/null 2>&1
-          if [ $? -eq 0 ]; then
+          if rci_parse "copy flash:/$item_name $backup_file" "Ошибка при сохранении $item_name"; then
             success "$item_name сохранена"
             success=0
-          else
-            error "Ошибка при сохранении $item_name"
           fi
         fi
         items="$items $item_name"
@@ -710,6 +723,9 @@ EOF
           success "Архив создан"
         else
           error "Невозможно создать архив: папка с бэкапами не найдена."
+          if has_upload_method "Telegram"; then
+            send_to_telegram "$EMOJI_FAIL Невозможно создать архив: папка с бэкапами не найдена." ""
+          fi
           return 1
         fi
 
@@ -717,7 +733,8 @@ EOF
         local _dev _fw
         _dev=$(escape_html "$DEVICE ($DEVICE_ID)")
         _fw=$(escape_html "$FW_VERSION_TITLE")
-        local report="$EMOJI_BACKUP Бэкап: $_dev"$'\n'"$EMOJI_VERSION Версия: $_fw"$'\n'"$EMOJI_SIZE Размер: $archive_size"$'\n'"$EMOJI_DATE Дата: $datetime"$'\n\n'
+        local report_datetime=$(printf '%s' "$datetime" | sed 's/_/ /; s/-\([0-9][0-9]\)$/:\1/')
+        local report="$EMOJI_BACKUP Бэкап: $_dev"$'\n'"$EMOJI_VERSION Версия: $_fw"$'\n'"$EMOJI_SIZE Размер: $archive_size"$'\n'"$EMOJI_DATE Дата: $report_datetime"$'\n\n'
         local i=1
         for item in $items; do
           local status_value=$(echo $statuses | cut -d' ' -f$i)
