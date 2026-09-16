@@ -151,8 +151,8 @@ get_backup_content() {
 
 select_schedule() {
   local message="$1"
-  local schedules=""
   local index=1
+  local schedule_count=0
   local schedule_output
   local parsed_schedules
   packages_checker "jq" || return 1
@@ -166,7 +166,6 @@ select_schedule() {
 
   parsed_schedules=$(printf '%s\n' "$schedule_output" | jq -r '
     to_entries[]
-    | select(.key | startswith("schedule"))
     | [(.key // ""), (.value.description // "")]
     | @tsv
   ' 2>/dev/null)
@@ -178,13 +177,13 @@ select_schedule() {
     else
       echo "$index. $name"
     fi
-    schedules="$schedules $index:$name"
     index=$((index + 1))
   done <<EOF
 $parsed_schedules
 EOF
 
-  if [ -z "$schedules" ]; then
+  schedule_count=$((index - 1))
+  if [ "$schedule_count" -eq 0 ]; then
     print_message "Расписания не найдены" "$RED"
     return 1
   fi
@@ -194,11 +193,12 @@ EOF
   choice=$(echo "$choice" | tr -d ' \n\r')
   [ "$choice" = "00" ] && return 1
 
-  SCHEDULE_SELECTED=$(echo "$schedules" | tr ' ' '\n' | grep "^$choice:" | cut -d ':' -f2)
-  if [ -z "$SCHEDULE_SELECTED" ]; then
+  if [ "$choice" -lt 1 ] || [ "$choice" -gt "$schedule_count" ]; then
     print_message "Неверный выбор" "$RED"
     return 1
   fi
+
+  SCHEDULE_SELECTED=$(printf '%s\n' "$parsed_schedules" | sed -n "${choice}p" | cut -f1)
   return 0
 }
 
@@ -691,7 +691,7 @@ manual_backup() {
 select_drive() {
   local message="$1"
   local media_output parsed_output
-  local uuid display_name fstype total_bytes free_bytes used_bytes
+  local uuid display_name fstype total_bytes free_bytes used_bytes drive_root
 
   if ! packages_checker "jq"; then
     print_message "Не удалось установить jq" "$RED"
@@ -699,9 +699,10 @@ select_drive() {
   fi
 
   local uuids=""
-  local index=1
+  local index=2
   media_output=$(rci_request "ls")
-  echo "0. Встроенное хранилище (может не хватить места)"
+  echo "0. Оперативная память (может не хватить места)"
+  echo "1. Встроенное хранилище"
 
   parsed_output=$(printf '%s\n' "$media_output" | jq -r '
     .entry | to_entries[]
@@ -740,14 +741,17 @@ EOF
   if [ "$choice" = "00" ]; then
     return 1
   elif [ "$choice" = "0" ]; then
+    selected_drive="/tmp"
+  elif [ "$choice" = "1" ]; then
     selected_drive="/storage"
   else
-      selected_drive=$(printf '%s\n' "$uuids" | sed -n "$((choice))p")
+      selected_drive=$(printf '%s\n' "$uuids" | sed -n "$((choice - 1))p")
       if [ -z "$selected_drive" ]; then
         print_message "Неверный выбор" "$RED"
         return 1
       fi
       selected_drive="/tmp/mnt/$selected_drive"
+      drive_root="$selected_drive"
 
     while true; do
       echo ""
@@ -770,7 +774,7 @@ EOF
         break
       elif echo "$folder_choice" | grep -Eq '^[0-9]+$' && [ "$folder_choice" -ge 1 ] && [ "$folder_choice" -le "$folder_count" ]; then
         selected_drive=$(printf '%s\n' "$@" | sed -n "${folder_choice}p")
-      elif [ "$folder_choice" = "00" ] && [ "$selected_drive" != "/tmp/mnt/$uuid" ]; then
+      elif [ "$folder_choice" = "00" ] && [ "$selected_drive" != "$drive_root" ]; then
         selected_drive=$(dirname "$selected_drive")
       else
         echo "Неверный выбор. Попробуйте снова."

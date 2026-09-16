@@ -771,18 +771,47 @@ EOF
         rm -rf "$SELECTED_DRIVE/$date"
       }
 
+      selected_drive_available() {
+        local selected_drive="$1"
+        local drive_name="$2"
+
+        [ -n "$drive_name" ] && [ -d "$selected_drive" ] || return 1
+
+        rci_request "ls" 2>/dev/null | jq -e --arg drive "$drive_name:" '
+          .entry[$drive] as $entry
+          | $entry != null
+            and ($entry.mounted // "yes") == "yes"
+        ' >/dev/null 2>&1
+      }
+
       main() {
+        local drive_path drive_name drive_error
+
         clean_log "$LOG_FILE"
         check_rci_token || return 1
         get_device_info
         log "Запуск скрипта для расписания $SCHEDULE"
-        local drive_uuid=$(basename "$SELECTED_DRIVE")
-        local device_uuid=$(echo "$SELECTED_DRIVE" | awk -F'/' '{print $4}')
-        if [ -z "$SELECTED_DRIVE" ] || ([ "$SELECTED_DRIVE" != "/storage" ] && rci_request "ls" 2>/dev/null | grep -q "\"$device_uuid\":") && [ ! -d "$SELECTED_DRIVE" ]; then
-          drive_name=$(basename "$SELECTED_DRIVE")
-          error "Выбранный накопитель $drive_name не подключён"
+
+        if [ -z "$SELECTED_DRIVE" ]; then
+          drive_error="Накопитель для создания бэкапа не выбран"
+          error "$drive_error"
           if has_upload_method "Telegram"; then
-            send_to_telegram "$EMOJI_FAIL Выбранный накопитель $drive_name не подключён" ""
+            send_to_telegram "$EMOJI_FAIL $drive_error" ""
+          fi
+          return 1
+        fi
+
+        drive_path=$(get_drive_path "$SELECTED_DRIVE" "$date")
+        drive_name=${drive_path%%:*}
+        if [ -z "$drive_name" ]; then
+          drive_name=${SELECTED_DRIVE#/}
+          drive_name=${drive_name%%/*}
+        fi
+        if ! selected_drive_available "$SELECTED_DRIVE" "$drive_name"; then
+          drive_error="Выбранный накопитель $drive_name не подключён"
+          error "$drive_error"
+          if has_upload_method "Telegram"; then
+            send_to_telegram "$EMOJI_FAIL $drive_error" ""
           fi
           return 1
         fi
