@@ -708,7 +708,7 @@ EOF
             package_check "7-zip"
             archive_path="$SELECTED_DRIVE/${DEVICE_ID}_${FW_VERSION}_$date.7z"
             log "Создание архива с паролем..."
-            7zz a -t7z -mx=9 -p"$ARCHIVE_PASSWORD" "$archive_path" "$SELECTED_DRIVE/$date"
+            7zz a -t7z -mx=1 -mmt=1 -p"$ARCHIVE_PASSWORD" "$archive_path" "$SELECTED_DRIVE/$date"
           else
             archive_path="$SELECTED_DRIVE/${DEVICE_ID}_${FW_VERSION}_$date.tar.gz"
             log "Создание архива..."

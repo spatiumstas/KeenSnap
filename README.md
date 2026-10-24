@@ -1,5 +1,5 @@
 # Бэкап конфигурации KeeneticOS
-<img src="https://github.com/user-attachments/assets/789cf6e7-848f-44dc-804c-38f84e65c5d5" alt="" width="700">
+<img src="https://github.com/user-attachments/assets/11df1559-f4dd-4789-96db-722f8210c2ac" alt="" width="700">
 
 ## Работа сервиса
 - Выбор объектов бэкапа состоит из: `Startup-Config`, `Entware`, `Firmware` и `WireGuard Private-Keys`
