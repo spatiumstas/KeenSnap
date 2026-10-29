@@ -598,12 +598,12 @@ statuses=""
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
           local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
-          local exclude_args=""
-          local exclude_list="$ENTWARE_EXCLUDE $date"
+          local exclude_args="--exclude=$date"
+          local exclude_list="$ENTWARE_EXCLUDE"
           local pattern
 
           for pattern in $exclude_list; do
-            pattern=$(echo "$pattern" | sed 's:^/*::')
+            pattern=$(echo "$pattern" | sed 's:^/opt/::; s:^/*::')
             [ -n "$pattern" ] && exclude_args="$exclude_args --exclude=./$pattern"
           done
 
@@ -716,7 +716,7 @@ EOF
           fi
           if [ $? -ne 0 ]; then
             error "Ошибка при создании архива"
-            send_to_telegram "Ошибка при создании архива" "$SELECTED_DRIVE/$date/backup_log.txt"
+            send_to_telegram "Ошибка при создании архива" "$LOG_FILE"
             rm -rf "$archive_path"
             return 1
           fi

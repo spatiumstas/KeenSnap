@@ -269,21 +269,19 @@ set_config_number() {
 }
 
 format_size() {
-  local used=$1
-  local total=$2
-  local used_mb=$((used / 1024 / 1024))
-  local total_mb=$((total / 1024 / 1024))
-  if [ "$total_mb" -ge 1024 ]; then
-    total_gb=$((total / 1024 / 1024 / 1024))
-    if [ "$used_mb" -lt 1024 ]; then
-      printf "%d MB / %d GB" $used_mb $total_gb
-    else
-      used_gb=$((used / 1024 / 1024 / 1024))
-      printf "%d / %d GB" $used_gb $total_gb
-    fi
-  else
-    printf "%d / %d MB" $used_mb $total_mb
-  fi
+  awk -v used="$1" -v total="$2" 'BEGIN {
+    mb = 1024 * 1024
+    gb = mb * 1024
+    total_gb = int(total / gb * 100) / 100
+    if (total < gb)
+      printf "%d / %d MB", used / mb, total / mb
+    else if (used < gb)
+      printf "%d MB / %.2f GB", used / mb, total_gb
+    else {
+      used_gb = int(used / gb * 100) / 100
+      printf "%.2f / %.2f GB", used_gb, total_gb
+    }
+  }'
 }
 
 setup_config() {
@@ -700,22 +698,37 @@ select_drive() {
 
   local uuids=""
   local index=2
-  media_output=$(rci_request "ls")
+  media_output=$(rci_request "show/media")
+
+  if [ -z "$media_output" ]; then
+    print_message "Не удалось получить список накопителей" "$RED"
+    return 1
+  fi
+
   echo "0. Оперативная память (может не хватить места)"
   echo "1. Встроенное хранилище"
 
-  parsed_output=$(printf '%s\n' "$media_output" | jq -r '
-    .entry | to_entries[]
-    | select(.value.storage? == "usb" and (.value.fstype? // "" | ascii_downcase) != "swap" and (.value.mounted? // "") == "yes")
+  if ! parsed_output=$(printf '%s\n' "$media_output" | jq -r '
+    to_entries[]
+    | select(.value.bus != "mtd")
+    | .value as $media
+    | (($media.manufacturer // "") | if . != "" then . else ($media.product // "") end) as $device_name
+    | ($media.partition // [])[]
+    | select(.state == "MOUNTED" and ((.fstype // "" | ascii_downcase) != "swap"))
     | [
-        (.key | rtrimstr(":")),
-        (.value.label // (.key | rtrimstr(":")) // "Unknown"),
-        ((.value.fstype // "") | ascii_upcase),
-        (.value.total // "0"),
-        (.value.free // "0")
+        (.uuid // ""),
+        ((.label // "") | if $device_name != "" then
+          $device_name + (if . != "" then " • " + . else "" end)
+        elif . != "" then . else "Unknown" end),
+        ((.fstype // "") | ascii_upcase),
+        (.total // "0"),
+        (.free // "0")
       ]
     | @tsv
-  ' 2>/dev/null)
+  ' 2>/dev/null); then
+    print_message "Не удалось обработать список накопителей" "$RED"
+    return 1
+  fi
 
   while IFS=$(printf '\t') read -r uuid display_name fstype total_bytes free_bytes; do
     [ -z "$uuid" ] && continue
@@ -724,7 +737,7 @@ select_drive() {
     used_bytes=$((total_bytes - free_bytes))
     [ "$used_bytes" -lt 0 ] && used_bytes=0
 
-    echo "$index. $display_name ($fstype, $(format_size $used_bytes $total_bytes))"
+    echo "$index. $display_name • ($fstype, $(format_size $used_bytes $total_bytes))"
     if [ -n "$uuids" ]; then
       uuids="$uuids
 $uuid"
