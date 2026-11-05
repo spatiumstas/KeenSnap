@@ -542,7 +542,7 @@ setup_runtime_settings() {
       1) toggle_boolean_option "AUTO_UPDATE" ;;
       2)
         echo ""
-        read -p "Введите число дней хранения локальных архивов (0 - отключить): " value
+        read -p "Введите число дней хранения архивов (0 - отключить): " value
         if echo "$value" | grep -Eq '^[0-9]+$'; then
           set_config_number "RETAIN_ARCHIVES_DAYS" "$value"
         fi

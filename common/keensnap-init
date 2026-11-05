@@ -253,6 +253,7 @@ statuses=""
             file_id=$(json_extract_value "$response" "id")
             if [ -n "$file_id" ]; then
               success "Архив загружен в Google Drive"
+              cleanup_gdrive_archives "$access_token" "$file_id"
               return 0
             fi
 
@@ -312,6 +313,7 @@ statuses=""
             case "$response_code" in
               200|201|204)
                 success "Архив загружен в WebDAV"
+                cleanup_webdav_archives "$file_name"
                 return 0
                 ;;
               *)
@@ -409,7 +411,7 @@ statuses=""
           return 0
         fi
 
-        old_list=$(find "$SELECTED_DRIVE" -maxdepth 1 -type f -name "${DEVICE_ID}_*backup*.tar.gz" -mtime +"$RETAIN_ARCHIVES_DAYS" 2>/dev/null)
+        old_list=$(find "$SELECTED_DRIVE" -maxdepth 1 -type f \( -name "${DEVICE_ID}_*backup*.tar.gz" -o -name "${DEVICE_ID}_*backup*.7z" \) -mtime +"$RETAIN_ARCHIVES_DAYS" 2>/dev/null)
         if [ -z "$old_list" ]; then
           return 0
         fi
@@ -428,6 +430,103 @@ statuses=""
         if [ "$old_count" -gt 0 ]; then
           log "Удалено старых архивов: $old_count (хранение: $RETAIN_ARCHIVES_DAYS дней)"
         fi
+      }
+
+      cleanup_gdrive_archives() {
+        local access_token="$1" current_id="$2" folder="${GD_FOLDER_ID:-root}"
+        local retain_days cutoff query response entries page_token="" file_id file_name code
+        local tab=$(printf '\t')
+
+        case "$RETAIN_ARCHIVES_DAYS" in ''|*[!0-9]*) return 0 ;; esac
+        [ "$RETAIN_ARCHIVES_DAYS" -gt 0 ] 2>/dev/null && [ "$RETAIN_ARCHIVES_DAYS" -le 20000 ] 2>/dev/null || return 0
+        [ "$DEVICE_ID" != "unknown" ] || { error "Очистка Google Drive пропущена: неизвестен идентификатор устройства"; return 0; }
+        case "$folder" in *[!A-Za-z0-9_-]*|'') error "Некорректный идентификатор папки Google Drive"; return 0 ;; esac
+        retain_days=$(expr "$RETAIN_ARCHIVES_DAYS" + 0)
+        cutoff=$(date -u -d "@$(($(date +%s) - (retain_days + 1) * 86400))" '+%Y-%m-%dT%H:%M:%SZ') || { error "Не удалось определить срок хранения Google Drive"; return 0; }
+        query="trashed = false and '$folder' in parents and modifiedTime < '$cutoff'"
+
+        while :; do
+          set -- -fsS -G -H "Authorization: Bearer $access_token" --data-urlencode "q=$query" \
+            --data-urlencode 'fields=nextPageToken,incompleteSearch,files(id,name,mimeType)' --data-urlencode 'pageSize=1000'
+          [ -z "$page_token" ] || set -- "$@" --data-urlencode "pageToken=$page_token"
+          if ! response=$(curl "$@" 'https://www.googleapis.com/drive/v3/files') ||
+            ! entries=$(printf '%s' "$response" | jq -r --arg prefix "${DEVICE_ID}_" --arg current "$current_id" '
+              if (.files | type) != "array" or .incompleteSearch == true then error("Invalid file list") else
+                (.nextPageToken // ""),
+                (.files[] | select(.id != $current and (.name | startswith($prefix)) and
+                  (.name | contains("backup")) and ((.name | endswith(".tar.gz")) or (.name | endswith(".7z"))) and
+                  .mimeType != "application/vnd.google-apps.folder") | [.id, .name] | @tsv)
+              end'); then
+            error "Не удалось получить список архивов Google Drive"
+            return 0
+          fi
+          {
+            IFS= read -r page_token
+            while IFS="$tab" read -r file_id file_name; do
+              case "$file_id" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
+              if code=$(curl -fsS -X DELETE -H "Authorization: Bearer $access_token" -o /dev/null -w '%{http_code}' "https://www.googleapis.com/drive/v3/files/$file_id") && [ "$code" = 204 ]; then
+                log "Удалён старый архив Google Drive: $file_name"
+              else
+                error "Не удалось удалить архив Google Drive: $file_name"
+              fi
+            done
+          } <<EOF
+$entries
+EOF
+          [ -n "$page_token" ] || break
+        done
+      }
+
+      cleanup_webdav_archives() {
+        local listing code count i entry href name modified modified_epoch cutoff xpath node base retain_days
+        local current_file="$1"
+
+        case "$RETAIN_ARCHIVES_DAYS" in ''|*[!0-9]*) return 0 ;; esac
+        [ "$RETAIN_ARCHIVES_DAYS" -gt 0 ] 2>/dev/null || return 0
+        [ "$DEVICE_ID" != "unknown" ] || { error "Очистка WebDAV пропущена: неизвестен идентификатор устройства"; return 0; }
+        [ "$RETAIN_ARCHIVES_DAYS" -le 20000 ] 2>/dev/null || { error "Некорректный срок хранения архивов"; return 0; }
+        if ! command -v xmllint >/dev/null 2>&1; then
+          package_check "libxml2-utils" || { error "Не удалось установить libxml2-utils для очистки WebDAV"; return 0; }
+        fi
+        retain_days=$(expr "$RETAIN_ARCHIVES_DAYS" + 0)
+        base=${WD_URL#*://}
+        base=/${base#*/}
+        set -- -sS
+        [ "$WD_INSECURE" = "true" ] && set -- "$@" -k
+        if [ -n "$WD_USERNAME" ] || [ -n "$WD_PASSWORD" ]; then
+          set -- "$@" --anyauth -u "$WD_USERNAME:$WD_PASSWORD"
+        fi
+        listing=$(mktemp) || return 0
+        xpath="/*[local-name()='multistatus' and namespace-uri()='DAV:']/*[local-name()='response' and namespace-uri()='DAV:']"
+        if ! code=$(curl "$@" -X PROPFIND -H 'Depth: 1' -H 'Content-Type: application/xml' --data '<d:propfind xmlns:d="DAV:"><d:prop><d:getlastmodified/></d:prop></d:propfind>' -o "$listing" -w '%{http_code}' "$WD_URL") ||
+           [ "$code" != 207 ] || ! count=$(xmllint --nonet --xpath "count($xpath)" "$listing" 2>/dev/null); then
+          error "Не удалось получить список WebDAV (HTTP $code)"
+          rm -f "$listing"
+          return 0
+        fi
+        cutoff=$(($(date +%s) - (retain_days + 1) * 86400))
+        i=1
+        while [ "$i" -le "${count:-0}" ]; do
+          node="($xpath)[$i]"
+          entry=$(xmllint --nonet --xpath "concat($node/*[local-name()='href' and namespace-uri()='DAV:'], '|', $node/*[local-name()='propstat' and namespace-uri()='DAV:'][contains(*[local-name()='status' and namespace-uri()='DAV:'], ' 200 ')]/*[local-name()='prop' and namespace-uri()='DAV:']/*[local-name()='getlastmodified' and namespace-uri()='DAV:'])" "$listing" 2>/dev/null)
+          i=$((i + 1))
+          href=${entry%%|*}
+          modified=${entry#*|}
+          name=${href##*/}
+          case "$href" in "$base$name"|"$WD_URL$name") ;; *) continue ;; esac
+          [ "$name" != "$current_file" ] || continue
+          case "$name" in "$DEVICE_ID"_*backup*.tar.gz|"$DEVICE_ID"_*backup*.7z) ;; *) continue ;; esac
+          case "$name" in *[!A-Za-z0-9._-]*) continue ;; esac
+          [ -n "$modified" ] || continue
+          modified_epoch=$(LC_ALL=C date -u -d "$modified" +%s 2>/dev/null) ||
+            modified_epoch=$(LC_ALL=C date -u -D '%a, %d %b %Y %H:%M:%S GMT' -d "$modified" +%s 2>/dev/null) ||
+            { error "Не удалось определить дату архива WebDAV: $name"; continue; }
+          if [ -n "$modified_epoch" ] && [ "$modified_epoch" -le "$cutoff" ]; then
+            code=$(curl "$@" -X DELETE -o /dev/null -w '%{http_code}' "$WD_URL$name") || code=000
+            case "$code" in 200|202|204) log "Удалён старый архив WebDAV: $name" ;; *) error "Не удалось удалить архив WebDAV: $name (HTTP $code)" ;; esac
+          fi
+        done
+        rm -f "$listing"
       }
 
       send_with_retry() {
@@ -752,10 +851,12 @@ EOF
         if send_archive_by_method "$report" "$archive_path" "$keyboard"; then
           if [ "$DELETE_LOCAL_ARCHIVE_AFTER_BACKUP" = "true" ]; then
             rm -f "$archive_path"
-            log "Архив удалён после отправки"
+            log "Локальный архив удалён после отправки"
           else
-            success "Архив сохранён: $archive_path"
-            cleanup_old_archives
+            success "Локальный архив сохранён: $archive_path"
+            if [ -z "$UPLOAD_METHOD" ]; then
+              cleanup_old_archives
+            fi
           fi
         else
           if [ "$DELETE_LOCAL_ARCHIVE_AFTER_BACKUP" = "true" ]; then
