@@ -411,7 +411,7 @@ statuses=""
           return 0
         fi
 
-        old_list=$(find "$SELECTED_DRIVE" -maxdepth 1 -type f \( -name "${DEVICE_ID}_*backup*.tar.gz" -o -name "${DEVICE_ID}_*backup*.7z" \) -mtime +"$RETAIN_ARCHIVES_DAYS" 2>/dev/null)
+        old_list=$(find "$SELECTED_DRIVE" -maxdepth 1 -type f \( -name "${DEVICE_ID}_*backup*.tar.gz" -o -name "${DEVICE_ID}_*backup*.7z" \) -mtime +"$(expr "$RETAIN_ARCHIVES_DAYS" - 1)" 2>/dev/null)
         if [ -z "$old_list" ]; then
           return 0
         fi
@@ -442,7 +442,7 @@ statuses=""
         [ "$DEVICE_ID" != "unknown" ] || { error "Очистка Google Drive пропущена: неизвестен идентификатор устройства"; return 0; }
         case "$folder" in *[!A-Za-z0-9_-]*|'') error "Некорректный идентификатор папки Google Drive"; return 0 ;; esac
         retain_days=$(expr "$RETAIN_ARCHIVES_DAYS" + 0)
-        cutoff=$(date -u -d "@$(($(date +%s) - (retain_days + 1) * 86400))" '+%Y-%m-%dT%H:%M:%SZ') || { error "Не удалось определить срок хранения Google Drive"; return 0; }
+        cutoff=$(date -u -d "@$(($(date +%s) - retain_days * 86400))" '+%Y-%m-%dT%H:%M:%SZ') || { error "Не удалось определить срок хранения Google Drive"; return 0; }
         query="trashed = false and '$folder' in parents and modifiedTime < '$cutoff'"
 
         while :; do
@@ -504,7 +504,7 @@ EOF
           rm -f "$listing"
           return 0
         fi
-        cutoff=$(($(date +%s) - (retain_days + 1) * 86400))
+        cutoff=$(($(date +%s) - retain_days * 86400))
         i=1
         while [ "$i" -le "${count:-0}" ]; do
           node="($xpath)[$i]"
@@ -854,9 +854,6 @@ EOF
             log "Локальный архив удалён после отправки"
           else
             success "Локальный архив сохранён: $archive_path"
-            if [ -z "$UPLOAD_METHOD" ]; then
-              cleanup_old_archives
-            fi
           fi
         else
           if [ "$DELETE_LOCAL_ARCHIVE_AFTER_BACKUP" = "true" ]; then
@@ -917,6 +914,9 @@ EOF
           return 1
         fi
 
+        if [ "$DELETE_LOCAL_ARCHIVE_AFTER_BACKUP" != "true" ]; then
+          cleanup_old_archives
+        fi
         create_backup_and_send_report
         delete_temp_folder
         log "Скрипт завершил работу"
