@@ -139,6 +139,8 @@ get_backup_content() {
   for entry in \
     "BACKUP_STARTUP_CONFIG:Startup-Config" \
     "BACKUP_FIRMWARE:Firmware" \
+    "BACKUP_FULL:Full-Backup" \
+    "BACKUP_AUDIT_LOG:Audit-Log" \
     "BACKUP_ENTWARE:Entware" \
     "BACKUP_WG_PRIVATE_KEY:WireGuard-Private-Key"; do
     key=${entry%%:*}
@@ -589,8 +591,10 @@ setup_backup_content() {
     printf "Состав бэкапа:\n\n"
     echo "1. BACKUP_STARTUP_CONFIG=$(get_config_bool "BACKUP_STARTUP_CONFIG" "false")"
     echo "2. BACKUP_FIRMWARE=$(get_config_bool "BACKUP_FIRMWARE" "false")"
-    echo "3. BACKUP_ENTWARE=$(get_config_bool "BACKUP_ENTWARE" "false")"
-    echo "4. BACKUP_WG_PRIVATE_KEY=$(get_config_bool "BACKUP_WG_PRIVATE_KEY" "false")"
+    echo "3. BACKUP_FULL=$(get_config_bool "BACKUP_FULL" "false")"
+    echo "4. BACKUP_AUDIT_LOG=$(get_config_bool "BACKUP_AUDIT_LOG" "false")"
+    echo "5. BACKUP_ENTWARE=$(get_config_bool "BACKUP_ENTWARE" "false")"
+    echo "6. BACKUP_WG_PRIVATE_KEY=$(get_config_bool "BACKUP_WG_PRIVATE_KEY" "false")"
     printf "00. Назад\n\n"
     read -p "Выберите параметр для переключения: " backup_choice
     echo ""
@@ -598,8 +602,10 @@ setup_backup_content() {
     case "$backup_choice" in
       1) toggle_boolean_option "BACKUP_STARTUP_CONFIG" ;;
       2) toggle_boolean_option "BACKUP_FIRMWARE" ;;
-      3) toggle_boolean_option "BACKUP_ENTWARE" ;;
-      4) toggle_boolean_option "BACKUP_WG_PRIVATE_KEY" ;;
+      3) toggle_boolean_option "BACKUP_FULL" ;;
+      4) toggle_boolean_option "BACKUP_AUDIT_LOG" ;;
+      5) toggle_boolean_option "BACKUP_ENTWARE" ;;
+      6) toggle_boolean_option "BACKUP_WG_PRIVATE_KEY" ;;
       00) break ;;
       *) echo "Неверный выбор" ;;
     esac

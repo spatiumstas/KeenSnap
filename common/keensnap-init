@@ -671,93 +671,64 @@ EOF
         echo "$ndmc_path|$rel_path"
       }
 
-      backup_startup_config() {
-        local success=1
-        local item_name="startup-config"
-
+      backup_item() {
+        local item_name="$1"
+        local result=1
+        shift
         if [ -n "$SELECTED_DRIVE" ]; then
           log "Бэкап $item_name..."
-          local paths_out=$(get_drive_path "$SELECTED_DRIVE" "$date")
-          local ndmc_path="${paths_out%%|*}"
-          local rel_path="${paths_out##*|}"
-          local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.txt"
-          if rci_parse "copy $item_name $backup_file" "Ошибка при сохранении $item_name"; then
+          if "$@"; then
             success "$item_name сохранён"
-            success=0
+            result=0
           fi
         fi
         items="$items $item_name"
-        statuses="$statuses $success"
+        statuses="$statuses $result"
+      }
+
+      backup_rci_file() {
+        local source="$1"
+        local filename="${DEVICE_ID}_${FW_VERSION}_$2"
+        local paths_out=$(get_drive_path "$SELECTED_DRIVE" "$date")
+        local ndmc_path="${paths_out%%|*}"
+        local backup_file="$ndmc_path/$filename"
+        rci_parse "copy $source $backup_file" "Ошибка при сохранении $filename"
       }
 
       backup_entware() {
-        local success=1
         local item_name="Entware"
         package_check "tar"
-        if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
-          local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
-          local exclude_args="--exclude=$date"
-          local exclude_list="$ENTWARE_EXCLUDE"
-          local pattern
+        local backup_file="$SELECTED_DRIVE/$date/$(get_architecture)_$item_name.tar.gz"
+        local exclude_args="--exclude=$date"
+        local exclude_list="$ENTWARE_EXCLUDE"
+        local pattern tar_output
 
-          for pattern in $exclude_list; do
-            pattern=$(echo "$pattern" | sed 's:^/opt/::; s:^/*::')
-            [ -n "$pattern" ] && exclude_args="$exclude_args --exclude=./$pattern"
-          done
+        for pattern in $exclude_list; do
+          pattern=$(echo "$pattern" | sed 's:^/opt/::; s:^/*::')
+          [ -n "$pattern" ] && exclude_args="$exclude_args --exclude=./$pattern"
+        done
 
-          tar_output=$(tar cvzf "$backup_file" -C /opt $exclude_args . 2>&1)
-          log_operation=$(echo "$tar_output" | tail -n 2)
-
-          if echo "$log_operation" | grep -iq "error\|no space left on device"; then
-            error "Ошибка при сохранении $item_name:" "$RED"
-            echo "$log_operation"
-          else
-            success "$item_name сохранён"
-            success=0
-          fi
+        if tar_output=$(tar cvzf "$backup_file" -C /opt $exclude_args . 2>&1); then
+          return 0
         fi
-
-        items="$items $item_name"
-        statuses="$statuses $success"
+        error "Ошибка при сохранении $item_name"
+        printf '%s\n' "$tar_output" | tail -n 2
+        return 1
       }
 
       backup_wg_private_key() {
-        local success=1
         local item_name="WireGuard-Private-Key"
         package_check "wireguard-tools"
-        if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
-          local folder_path="$SELECTED_DRIVE/$date"
-          local backup_file="$folder_path/$item_name.txt"
-          wg show all private-key >"$backup_file"
-          if [ $? -eq 0 ]; then
-            success "$item_name сохранён"
-            success=0
-          else
-            error "Ошибка при сохранении $item_name"
-          fi
-          items="$items $item_name"
-          statuses="$statuses $success"
+        local backup_file="$SELECTED_DRIVE/$date/$item_name.txt"
+        if wg show all private-key >"$backup_file"; then
+          return 0
         fi
+        error "Ошибка при сохранении $item_name"
+        return 1
       }
 
-      backup_firmware() {
-        local success=1
-        local item_name="firmware"
-        if [ -n "$SELECTED_DRIVE" ]; then
-          log "Бэкап $item_name..."
-          local paths_out=$(get_drive_path "$SELECTED_DRIVE" "$date")
-          local ndmc_path="${paths_out%%|*}"
-          local rel_path="${paths_out##*|}"
-          local backup_file="$ndmc_path/${DEVICE_ID}_${FW_VERSION}_$item_name.bin"
-          if rci_parse "copy flash:/$item_name $backup_file" "Ошибка при сохранении $item_name"; then
-            success "$item_name сохранена"
-            success=0
-          fi
-        fi
-        items="$items $item_name"
-        statuses="$statuses $success"
+      backup_audit_log() {
+        backup_rci_file "ndm:/audit-log" "audit-log.txt"
       }
 
       create_backup_and_send_report() {
@@ -767,22 +738,32 @@ EOF
         local backup_performed=0
 
         if [ "$BACKUP_ENTWARE" = "true" ]; then
-          backup_entware
+          backup_item "Entware" backup_entware
           backup_performed=1
         fi
 
         if [ "$BACKUP_STARTUP_CONFIG" = "true" ]; then
-          backup_startup_config
+          backup_item "Startup-Config" backup_rci_file "startup-config" "startup-config.txt"
           backup_performed=1
         fi
 
         if [ "$BACKUP_FIRMWARE" = "true" ]; then
-          backup_firmware
+          backup_item "Firmware" backup_rci_file "flash:/firmware" "firmware.bin"
+          backup_performed=1
+        fi
+
+        if [ "$BACKUP_FULL" = "true" ]; then
+          backup_item "Full-Backup" backup_rci_file "flash:/backup" "backup.bin"
+          backup_performed=1
+        fi
+
+        if [ "$BACKUP_AUDIT_LOG" = "true" ]; then
+          backup_item "Audit-Log" backup_audit_log
           backup_performed=1
         fi
 
         if [ "$BACKUP_WG_PRIVATE_KEY" = "true" ]; then
-          backup_wg_private_key
+          backup_item "WireGuard-Private-Key" backup_wg_private_key
           backup_performed=1
         fi
 
